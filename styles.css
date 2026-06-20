@@ -271,3 +271,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .swipe-del{position:absolute;top:0;right:0;bottom:0;width:88px;border:none;background:var(--accent);color:#fff;font:inherit;font-weight:700;font-size:13px;cursor:pointer;z-index:0;display:flex;align-items:center;justify-content:center;letter-spacing:.02em}
 .swipe-content{position:relative;z-index:1;width:100%;box-sizing:border-box;background:var(--card);display:flex;align-items:center;gap:11px;padding:12px 15px;will-change:transform;transform:translateX(0)}
 .item.swiped{box-shadow:none}
+
+/* money hide toggle (eye) */
+.eyebtn{position:absolute;top:11px;right:88px;background:var(--card2);border:1px solid var(--line);width:36px;height:36px;border-radius:11px;font-size:16px;cursor:pointer;display:grid;place-items:center;padding:0;line-height:1}
+.eyebtn:active{opacity:.7}
+.eyebtn.on{background:var(--accent-soft);border-color:var(--accent)}

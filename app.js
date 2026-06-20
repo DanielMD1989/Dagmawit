@@ -20,10 +20,13 @@ let SHARED_ID = 'shared';   // single shared business document
 let saveTimer = null, realtimeChan = null, applyingRemote = false;
 
 const $ = id => document.getElementById(id);
-const money=n=>CUR()+' '+Math.round(n).toLocaleString();
+let hideMoney=false;
+try{hideMoney=localStorage.getItem('dagmawit:hideMoney')==='1';}catch(e){}
+const MASK='•••••';
+const money=n=>hideMoney?(CUR()+' '+MASK):(CUR()+' '+Math.round(n).toLocaleString());
 const CUR=()=>mem.settings.currency||'Birr';
 const FCUR=()=>mem.settings.fcurrency||'USD';
-const fmoney=(n,cur)=>cur+' '+Math.round(n).toLocaleString();
+const fmoney=(n,cur)=>hideMoney?(cur+' '+MASK):(cur+' '+Math.round(n).toLocaleString());
 const uid=()=>Date.now()+''+Math.floor(Math.random()*999);
 const today=()=>new Date().toISOString().slice(0,10);
 function toast(m){const t=$('toast');t.innerHTML=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1900);}
@@ -287,7 +290,7 @@ function renderHome(){
 }
 
 function orderCardHtml(o){
-  const fx=isForeign(o);const oc=fx?FCUR():CUR();const om=n=>oc+' '+Math.round(n).toLocaleString();
+  const fx=isForeign(o);const oc=fx?FCUR():CUR();const om=n=>hideMoney?(oc+' '+MASK):(oc+' '+Math.round(n).toLocaleString());
   const st=orderStatus(o),rem=orderRemaining(o),pct=o.total>0?Math.min(100,Math.round(o.paid/o.total*100)):0;
   const labels={paid:'Fully paid',partial:'Partial',unpaid:'Unpaid'};
   const barC=st==='paid'?'var(--green)':st==='partial'?'var(--amber)':'var(--accent)';
@@ -503,6 +506,7 @@ function renderAudit(){
 function monthlyBarChart(rows){
   // grouped vertical bars: income + expense per month, last 12 months, tappable
   if(!rows.length)return '<div class="empty" style="padding:20px">No monthly data yet.</div>';
+  if(hideMoney)return '<div class="empty" style="padding:20px">Money hidden &mdash; tap the eye to show.</div>';
   const max=Math.max(1,...rows.map(r=>Math.max(r.income,r.exp)));
   const H=120; // px chart height
   let bars=rows.map(r=>{
@@ -673,7 +677,7 @@ function orderForm(existing){
 }
 
 function orderPaymentForm(order){
-  const oc=isForeign(order)?FCUR():CUR();const om=n=>oc+' '+Math.round(n).toLocaleString();
+  const oc=isForeign(order)?FCUR():CUR();const om=n=>hideMoney?(oc+' '+MASK):(oc+' '+Math.round(n).toLocaleString());
   openSheet('<h2>Add payment</h2><div class="hint" style="margin-bottom:6px">'+esc(order.customer||'Order')+' &mdash; '+om(orderRemaining(order))+' remaining of '+om(order.total)+'</div><label>Amount received now ('+oc+')</label><input id="op_amt" type="number" inputmode="decimal" placeholder="0"><div class="seg" id="op_quick" style="margin-top:8px"><button data-q="full">Pay all '+om(orderRemaining(order))+'</button></div><label>Date</label><input id="op_date" type="date" value="'+today()+'"><button class="save" id="op_save">Save payment</button>');
   document.querySelectorAll('#op_quick button').forEach(b=>b.onclick=()=>{$('op_amt').value=orderRemaining(order);});
   $('op_save').onclick=async()=>{const amt=+$('op_amt').value||0;if(amt<=0){toast('Enter an amount');return;}order.paid=Math.min(order.total,order.paid+amt);await save();closeSheet();savedTick(orderRemaining(order)===0?'Fully paid!':'Payment saved');render();};
@@ -871,6 +875,12 @@ document.querySelectorAll('nav button[data-tab]').forEach(b=>b.onclick=()=>setTa
 function openSide(){$('sideScrim').classList.add('show');$('sideMenu').classList.add('show');lockScroll();}
 function closeSide(){const sm=$('sideMenu');$('sideScrim').classList.remove('show');sm.classList.remove('show');sm.style.transform='';unlockScroll();}
 $('menuBtn').onclick=openSide;
+(function(){
+  const eb=$('eyeBtn');
+  function paint(){eb.innerHTML=hideMoney?'&#128584;':'&#128065;';eb.classList.toggle('on',hideMoney);}
+  paint();
+  eb.onclick=()=>{hideMoney=!hideMoney;try{localStorage.setItem('dagmawit:hideMoney',hideMoney?'1':'0');}catch(e){}paint();render();toast(hideMoney?'Money hidden':'Money shown');};
+})();
 // swipe-left to close the side menu
 (function(){
   const sm=$('sideMenu');let sx=null,dx=0;
