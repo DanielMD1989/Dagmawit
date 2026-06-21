@@ -366,8 +366,25 @@ function renderExpenses(){
   if(expCat)html+='<div class="filterbar"><button class="on" id="exp_clearcat">&times; '+expCat+' &mdash; show all</button></div>';
   else html+='<div class="filterbar">'+[['all','All'],['biz','Business'],['home','Household']].map(f=>'<button data-expf="'+f[0]+'" class="'+(expFilter===f[0]?'on':'')+'">'+f[1]+'</button>').join('')+'</div>';
   if(dupCount>0)html+='<div class="alert due" style="margin-bottom:10px"><span class="dot"></span><span><b>'+dupCount+' possible duplicate'+(dupCount>1?'s':'')+'</b> found (same category, amount &amp; date). Tap one to review or delete.</span></div>';
-  html+='<div class="card">'+(list.length?list.map(e=>expenseRowHtml(e,dupset)).join(''):'<div class="empty" style="padding:22px"><div class="e-ic">&#128178;</div>No expenses here yet. Tap + &rarr; Expense.</div>')+'</div>';
-  html+='<div class="hint" style="text-align:center;margin-top:10px">Tap any expense to edit or delete it.</div>';
+  if(!list.length){
+    html+='<div class="card"><div class="empty" style="padding:22px"><div class="e-ic">&#128178;</div>No expenses here yet. Tap + &rarr; Expense.</div></div>';
+    return html;
+  }
+  // group by month, expandable (newest month open)
+  const groups={};
+  list.forEach(e=>{const ym2=(e.date||'').slice(0,7)||'unknown';(groups[ym2]=groups[ym2]||[]).push(e);});
+  const yms=Object.keys(groups).sort().reverse();
+  yms.forEach((ym2,idx)=>{
+    const arr=groups[ym2];
+    const label=ym2==='unknown'?'No date':new Date(ym2+'-01').toLocaleDateString('en',{month:'long',year:'numeric'});
+    const gtotal=arr.reduce((s,e)=>s+e.amount,0);
+    const open=idx===0;
+    html+='<div class="monthgroup">'
+      +'<button class="monthhead" data-mgroupx="'+ym2+'"><span class="mh-caret">'+(open?'&#9662;':'&#9656;')+'</span><span class="mh-label">'+label+'</span><span class="mh-count">'+arr.length+' &middot; '+money(gtotal)+'</span></button>'
+      +'<div class="monthbody'+(open?' show':'')+'" id="xg_'+ym2+'"><div class="card">'+arr.map(e=>expenseRowHtml(e,dupset)).join('')+'</div></div>'
+    +'</div>';
+  });
+  html+='<div class="hint" style="text-align:center;margin-top:10px">Tap a month to expand &middot; tap any expense to edit or delete it.</div>';
   return html;
 }
 
@@ -570,11 +587,11 @@ function renderReports(){
   const totalBal=loans.reduce((s,l)=>s+l.balance,0);
   const loanRows=loans.length?loans.map(l=>{const repaid=loanRepaid(l),pct=l.total>0?Math.round(repaid/l.total*100):0;const cleared=l.balance<=0;return '<div class="item" data-loan="'+l.id+'"><div class="ic loan">&#9672;</div><div class="body"><div class="t1">'+esc(l.lender||'Loan')+'</div><div class="t2">'+money(repaid)+' repaid of '+money(l.total)+(l.note?' &middot; '+esc(l.note):'')+'</div><span class="pill '+(cleared?'paid':'partial')+'">'+(cleared?'Cleared &#10003;':money(l.balance)+' left')+'</span><div class="prog"><i style="width:'+pct+'%;background:var(--purple)"></i></div></div><div class="amt">'+pct+'%</div></div>';}).join(''):'<div class="empty" style="padding:18px">No loans tracked. Tap + &rarr; Expense &rarr; Loan.</div>';
   html+='<div class="dash-section">Loans <span style="font-family:Archivo;font-style:normal;font-size:12px;color:var(--muted)">&mdash; '+money(totalBal)+' to repay &middot; tap to manage</span></div><div class="card">'+loanRows+'</div>';
-  // month-ending running balance (bank-statement style)
+  // Previous months — tappable list showing money at end of each month (running balance)
   const ser=monthlySeriesAsc(12).slice().reverse(); // newest first for display
   if(ser.length){
-    let rows=ser.map(r=>'<div class="bar" style="cursor:default"><div class="bn">'+r.label+'</div><div class="bt" style="background:none;flex:none;width:auto;color:var(--muted);font-size:11.5px">in '+money(r.income)+' &middot; out '+money(r.exp)+'</div><div class="ba" style="color:'+(r.balance>=0?'var(--green)':'var(--accent)')+'">'+(r.balance<0?'&minus;':'')+money(Math.abs(r.balance))+'</div></div>').join('');
-    html+='<div class="repcard"><h3>Month-ending balance</h3><div class="hint" style="margin:0 0 8px">Running balance at the end of each month (income and spending added up over time).</div>'+rows+'</div>';
+    let rows=ser.map(r=>'<div class="item monthrow" data-gomonth="'+r.ym+'" style="cursor:pointer"><div class="body"><div class="t1">'+r.label+'</div><div class="t2">in '+money(r.income)+' &middot; out '+money(r.exp)+'</div></div><div class="amt" style="color:'+(r.balance>=0?'var(--green)':'var(--accent)')+'">'+(r.balance<0?'&minus;':'')+money(Math.abs(r.balance))+' &rsaquo;</div></div>').join('');
+    html+='<div class="dash-section">Previous months &middot; balance at month end</div><div class="hint" style="margin:0 0 8px">Money you had at the end of each month. Tap a month to see its full income &amp; expense report.</div><div class="card">'+rows+'</div>';
   }
   html+='<button class="ghost" id="setBtn">&#9881; Settings &amp; account</button>';
   return html;
@@ -599,6 +616,14 @@ function openSheet(html){
   sheet.addEventListener('touchstart',onStart,{passive:true});
   sheet.addEventListener('touchmove',onMove,{passive:true});
   sheet.addEventListener('touchend',onEnd);
+  // edge-swipe-right to go back (iOS-style): start within 30px of left edge, drag right
+  let exStart=null,exDx=0,exActive=false;
+  const exOnStart=e=>{const t=e.touches?e.touches[0]:e;if(t.clientX<=30){exStart=t.clientX;exDx=0;exActive=true;sheet.style.transition='none';}else{exStart=null;exActive=false;}};
+  const exOnMove=e=>{if(!exActive||exStart===null)return;const t=e.touches?e.touches[0]:e;exDx=t.clientX-exStart;if(exDx>0){sheet.style.transform='translateX('+exDx+'px)';scrim.style.opacity=Math.max(0,1-exDx/400);}};
+  const exOnEnd=()=>{if(!exActive){return;}sheet.style.transition='';scrim.style.opacity='';if(exDx>80){closeSheet();}else{sheet.style.transform='';}exStart=null;exActive=false;exDx=0;};
+  sheet.addEventListener('touchstart',exOnStart,{passive:true});
+  sheet.addEventListener('touchmove',exOnMove,{passive:true});
+  sheet.addEventListener('touchend',exOnEnd);
   document.querySelectorAll('.addopt').forEach(b=>b.onclick=()=>{const t=b.dataset.t;if(t==='order')orderForm();else if(t==='expense')expenseForm('biz');else if(t==='home')expenseForm('home');else if(t==='loan')loanForm();else if(t==='bazar')bazarForm();else if(t==='incomegroup')incomeMenu();else if(t==='expensegroup')expenseMenu();else if(t==='event')eventForm();});
 }
 function closeSheet(){scrim.classList.remove('show');sheet.classList.remove('show');sheet.style.transform='';scrim.style.opacity='';unlockScroll();}
@@ -864,6 +889,7 @@ function wireDynamic(){
   document.querySelectorAll('.tap-pending').forEach(b=>b.onclick=()=>setTab('orders'));
   document.querySelectorAll('[data-gomonth]').forEach(b=>b.onclick=()=>renderMonthDetail(b.dataset.gomonth));
   document.querySelectorAll('[data-mgroup]').forEach(b=>b.onclick=()=>{const ym=b.dataset.mgroup;const body=$('mg_'+ym);if(body){const showing=body.classList.contains('show');body.classList.toggle('show');const c=b.querySelector('.mh-caret');if(c)c.innerHTML=showing?'&#9656;':'&#9662;';}});
+  document.querySelectorAll('[data-mgroupx]').forEach(b=>b.onclick=()=>{const ym=b.dataset.mgroupx;const body=$('xg_'+ym);if(body){const showing=body.classList.contains('show');body.classList.toggle('show');const c=b.querySelector('.mh-caret');if(c)c.innerHTML=showing?'&#9656;':'&#9662;';}});
   const ecc=$('exp_clearcat');if(ecc)ecc.onclick=()=>{expCat=null;render();};
   const cs=$('cust_search');if(cs)cs.oninput=()=>{custSearch=cs.value;const v=renderMeasurements();const view=$('view');view.innerHTML=v;wireDynamic();const cs2=$('cust_search');if(cs2){cs2.focus();cs2.setSelectionRange(cs2.value.length,cs2.value.length);}};
   const ca=$('cust_add');if(ca)ca.onclick=()=>customerForm();
