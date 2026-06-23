@@ -261,14 +261,13 @@ function totalsForRange(from,to){
 function ymOf(d){return d.slice(0,7);}
 function prevYM(ym){const[y,m]=ym.split('-').map(Number);const d=new Date(y,m-2,1);return d.toISOString().slice(0,7);}
 function monthlyNets(){
-  // returns array of {ym, label, income, exp, net} for every month with activity, newest first
-  // exp here = all spending that reduces BALANCE: every expense (incl. loan repayments,
-  // counted once) plus assets. Income minus this gives the month's change in cash on hand.
+  // per month: income, exp (all spending incl household+assets -> drives balance),
+  // expBiz (business cost only), profit (income - business cost). Newest first.
   const m={};
-  mem.orders.forEach(o=>{if(isForeign(o))return;const ym=incomeDateOf(o).slice(0,7);(m[ym]=m[ym]||{inc:0,exp:0}).inc+=o.paid;});
-  mem.expenses.forEach(e=>{const ym=(e.date||'').slice(0,7);if(!ym)return;(m[ym]=m[ym]||{inc:0,exp:0}).exp+=e.amount;});
-  (mem.assets||[]).forEach(a=>{const ym=(a.date||'').slice(0,7);if(!ym)return;(m[ym]=m[ym]||{inc:0,exp:0}).exp+=(+a.value||0);});
-  return Object.keys(m).sort().reverse().map(ym=>({ym:ym,label:new Date(ym+'-01').toLocaleDateString('en',{month:'short',year:'numeric'}),income:m[ym].inc,exp:m[ym].exp,net:m[ym].inc-m[ym].exp}));
+  mem.orders.forEach(o=>{if(isForeign(o))return;const ym=incomeDateOf(o).slice(0,7);(m[ym]=m[ym]||{inc:0,exp:0,biz:0}).inc+=o.paid;});
+  mem.expenses.forEach(e=>{const ym=(e.date||'').slice(0,7);if(!ym)return;const mm=(m[ym]=m[ym]||{inc:0,exp:0,biz:0});mm.exp+=e.amount;if(e.scope!=='home')mm.biz+=e.amount;});
+  (mem.assets||[]).forEach(a=>{const ym=(a.date||'').slice(0,7);if(!ym)return;(m[ym]=m[ym]||{inc:0,exp:0,biz:0}).exp+=(+a.value||0);});
+  return Object.keys(m).sort().reverse().map(ym=>({ym:ym,label:new Date(ym+'-01').toLocaleDateString('en',{month:'short',year:'numeric'}),income:m[ym].inc,exp:m[ym].exp,expBiz:m[ym].biz,profit:m[ym].inc-m[ym].biz,net:m[ym].inc-m[ym].exp}));
 }
 function monthlySeriesAsc(limit){
   // oldest->newest, with cumulative running balance; last `limit` months
@@ -374,8 +373,7 @@ function renderHome(){
   const at=totalsForRange(null,null);const atNet=at.balance;
   const fLine=(r)=>r>0?'<div style="font-size:11.5px;color:var(--gold);margin-top:8px;position:relative">+ '+fmoney(r,FCUR())+' from website orders (kept separate)</div>':'';
   let html='';
-  html+='<div class="hero alt"><div class="lbl">Current balance &middot; all time</div><div class="big">'+(atNet<0?'&minus;':'')+money(Math.abs(atNet))+'</div><div class="delta" style="color:var(--muted)">Money in hand &mdash; total made minus everything spent</div><div class="row"><div><div class="k">Business profit</div><div class="v '+(at.profit>=0?'pos':'neg')+'">'+(at.profit<0?'&minus;':'')+money(Math.abs(at.profit))+'</div></div><div><div class="k">Household spent</div><div class="v neg">'+money(at.expHome)+'</div></div></div>'+(at.assets>0?'<div style="font-size:11.5px;color:var(--gold);margin-top:8px;position:relative">&minus; '+money(at.assets)+' in assets owned (car, machines &mdash; value kept, not lost)</div>':'')+fLine(at.fReceived)+'</div>';
-  html+='<div class="hint" style="margin:-2px 2px 10px;color:var(--muted)">Profit = income minus business costs (is the business earning?). Balance = profit minus household spending and assets (money actually in hand).</div>';
+  html+='<div class="hero alt"><div class="lbl">Current balance &middot; all time</div><div class="big">'+(atNet<0?'&minus;':'')+money(Math.abs(atNet))+'</div><div class="delta" style="color:var(--muted)">Money in hand &mdash; everything earned minus everything spent</div>'+(at.assets>0?'<div style="font-size:11.5px;color:var(--gold);margin-top:10px;position:relative">&minus; '+money(at.assets)+' held in assets (car, machines &mdash; value kept, not lost)</div>':'')+fLine(at.fReceived)+'</div>';
   html+='<div class="insights">'+cards+'</div>';
   if(alerts)html+='<div class="dash-section">Needs attention</div><div class="alerts">'+alerts+'</div>';
   // upcoming events section
@@ -671,25 +669,28 @@ function renderAudit(){
 }
 
 function monthlyBarChart(rows){
-  // grouped vertical bars: income + expense per month, last 12 months, tappable
+  // grouped vertical bars: income, expense, profit per month, last 12 months, tappable
   if(!rows.length)return '<div class="empty" style="padding:20px">No monthly data yet.</div>';
   if(hideMoney)return '<div class="empty" style="padding:20px">Money hidden &mdash; tap the eye to show.</div>';
-  const max=Math.max(1,...rows.map(r=>Math.max(r.income,r.exp)));
+  const max=Math.max(1,...rows.map(r=>Math.max(r.income,r.exp,Math.abs(r.profit))));
   const H=120; // px chart height
   let bars=rows.map(r=>{
     const ih=Math.round(r.income/max*H), eh=Math.round(r.exp/max*H);
+    const ph=Math.round(Math.abs(r.profit)/max*H);
+    const loss=r.profit<0;
     const short=r.label.split(' ')[0]; // "Jun"
     return '<div class="mbar" data-gomonth="'+r.ym+'" title="'+r.label+'">'
       +'<div class="mbar-cols" style="height:'+H+'px">'
         +'<div class="mbar-col inc" style="height:'+Math.max(2,ih)+'px"></div>'
         +'<div class="mbar-col exp" style="height:'+Math.max(2,eh)+'px"></div>'
+        +'<div class="mbar-col '+(loss?'loss':'prof')+'" style="height:'+Math.max(2,ph)+'px" title="profit"></div>'
       +'</div>'
       +'<div class="mbar-label">'+short+'</div>'
     +'</div>';
   }).join('');
-  return '<div class="mchart-legend"><span><i class="lg inc"></i>Income</span><span><i class="lg exp"></i>Expense</span></div>'
+  return '<div class="mchart-legend"><span><i class="lg inc"></i>Income</span><span><i class="lg exp"></i>Expense</span><span><i class="lg prof"></i>Profit</span></div>'
     +'<div class="mchart">'+bars+'</div>'
-    +'<div class="hint" style="margin-top:8px">Tap a month to see its full income &amp; expense detail.</div>';
+    +'<div class="hint" style="margin-top:8px">Income, what you spent, and profit (income minus business costs). Tap a month for detail. A red profit bar means a loss that month.</div>';
 }
 function renderMonthDetail(ym){
   // full income & expense detail for a single month
@@ -700,8 +701,11 @@ function renderMonthDetail(ym){
   const exps=mem.expenses.filter(e=>inR(e.date));
   const incTot=incomeOrders.reduce((s,o)=>s+o.paid,0);
   const expTot=exps.reduce((s,e)=>s+e.amount,0);
+  const expBizTot=exps.filter(e=>e.scope!=='home').reduce((s,e)=>s+e.amount,0);
+  const profit=incTot-expBizTot;
   let html='<h2>'+label+'</h2>';
-  html+='<div class="twostat"><div><div class="sl">Income</div><div class="sv" style="color:var(--green)">'+money(incTot)+'</div></div><div><div class="sl">Expense</div><div class="sv" style="color:var(--accent)">'+money(expTot)+'</div></div></div>';
+  html+='<div class="threestat"><div><div class="sl">Income</div><div class="sv" style="color:var(--green)">'+money(incTot)+'</div></div><div><div class="sl">Expense</div><div class="sv" style="color:var(--accent)">'+money(expTot)+'</div></div><div><div class="sl">Profit</div><div class="sv" style="color:'+(profit>=0?'var(--brand)':'#c0392b')+'">'+(profit<0?'&minus;':'')+money(Math.abs(profit))+'</div></div></div>';
+  html+='<div class="hint" style="margin-bottom:8px">Profit = income minus business costs only. Expense is everything spent (business + household).</div>';
   html+='<div class="dash-section">Income ('+incomeOrders.length+')</div><div class="card">'+(incomeOrders.length?incomeOrders.sort((a,b)=>b.paid-a.paid).map(o=>'<div class="item" style="cursor:default"><div class="ic sale">&#10022;</div><div class="body"><div class="t1">'+esc(o.customer||'Order')+'</div><div class="t2">'+(o.clothType||'')+' &middot; '+incomeDateOf(o)+'</div></div><div class="amt in">'+money(o.paid)+'</div></div>').join(''):'<div class="empty" style="padding:16px">No income this month.</div>')+'</div>';
   html+='<div class="dash-section">Expense ('+exps.length+')</div><div class="card">'+(exps.length?exps.sort((a,b)=>b.amount-a.amount).map(e=>'<div class="item" style="cursor:default"><div class="ic '+(e.scope==='home'?'home':'exp')+'">&minus;</div><div class="body"><div class="t1">'+(e.loanId?'Loan repayment':e.cat)+'</div><div class="t2">'+(e.scope==='home'?'Household':'Business')+' &middot; '+e.date+(e.note?' &middot; '+esc(e.note):'')+'</div></div><div class="amt out">&minus;'+money(e.amount)+'</div></div>').join(''):'<div class="empty" style="padding:16px">No expenses this month.</div>')+'</div>';
   openSheet(html);

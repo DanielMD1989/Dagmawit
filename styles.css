@@ -147,6 +147,10 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .twostat>div{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow)}
 .twostat .sl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 .twostat .sv{font-family:'Fraunces',serif;font-size:23px;font-weight:600;margin-top:3px}
+.threestat{display:flex;gap:8px;margin-bottom:12px}
+.threestat>div{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 10px;box-shadow:var(--shadow);text-align:center}
+.threestat .sl{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.threestat .sv{font-family:'Fraunces',serif;font-size:18px;font-weight:600;margin-top:3px}
 .toast{position:fixed;bottom:96px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--paper);padding:11px 20px;border-radius:30px;font-size:13.5px;z-index:60;opacity:0;transition:all .25s;pointer-events:none}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .filterbar{display:flex;gap:7px;margin:0 0 10px;overflow-x:auto;padding-bottom:2px}
@@ -254,11 +258,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 .mchart-legend .lg{width:10px;height:10px;border-radius:2px;display:inline-block}
 .lg.inc,.mbar-col.inc{background:var(--green)}
 .lg.exp,.mbar-col.exp{background:var(--accent)}
+.lg.prof,.mbar-col.prof{background:var(--brand)}
+.mbar-col.loss{background:#c0392b}
 .mchart{display:flex;align-items:flex-end;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
 .mchart::-webkit-scrollbar{display:none}
-.mbar{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-width:42px}
-.mbar-cols{display:flex;align-items:flex-end;gap:3px}
-.mbar-col{width:13px;border-radius:3px 3px 0 0;transition:opacity .15s}
+.mbar{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;min-width:50px}
+.mbar-cols{display:flex;align-items:flex-end;gap:2.5px}
+.mbar-col{width:11px;border-radius:3px 3px 0 0;transition:opacity .15s}
 .mbar:active .mbar-col{opacity:.6}
 .mbar-label{font-size:10.5px;color:var(--muted);font-weight:600}
 
