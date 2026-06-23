@@ -971,7 +971,7 @@ function loanForm(existing){
   const purpose=l.purpose||'business';
   let html='<h2>'+(existing?'Loan':'Add a loan')+'</h2><label>Lender / source</label><input id="l_lender" value="'+esc(l.lender||'')+'" placeholder="e.g. Bank, cousin">';
   html+='<label>Total loan amount ('+CUR()+')</label><input id="l_total" type="number" inputmode="decimal" value="'+(l.total||'')+'" placeholder="0" '+(existing?'disabled style="opacity:.5"':'')+'>';
-  html+='<label>What was this loan for?</label><div class="seg" id="l_purpose"><button type="button" data-p="business" class="'+(purpose==='business'?'on':'')+'">Business</button><button type="button" data-p="household" class="'+(purpose==='household'?'on':'')+'">Household</button></div>';
+  html+='<label>What was this loan for?</label><div class="seg" id="l_purpose"><button type="button" data-p="business" class="'+(purpose==='business'?'sel':'')+'">Business</button><button type="button" data-p="household" class="'+(purpose==='household'?'sel':'')+'">Household</button></div>';
   html+='<div class="hint" style="margin:-4px 0 8px">Business = bought stock/materials the business runs on (repayments reduce profit). Household = personal use (repayments reduce balance only, never profit).</div>';
   if(existing)html+='<label>Current balance ('+CUR()+')</label><input id="l_bal" type="number" inputmode="decimal" value="'+l.balance+'">';
   html+='<label>Note (optional)</label><input id="l_note" value="'+esc(l.note||'')+'" placeholder="e.g. monthly due 5th">';
@@ -980,7 +980,7 @@ function loanForm(existing){
   if(existing)html+='<button class="ghost" id="l_repay" style="color:var(--purple);font-weight:600">&#65291; Log a repayment</button><button class="ghost del" id="l_del">Delete loan</button>';
   openSheet(html);
   let curPurpose=purpose;
-  document.querySelectorAll('#l_purpose button').forEach(b=>b.onclick=()=>{curPurpose=b.dataset.p;document.querySelectorAll('#l_purpose button').forEach(x=>x.classList.toggle('on',x===b));});
+  document.querySelectorAll('#l_purpose button').forEach(b=>b.onclick=()=>{curPurpose=b.dataset.p;document.querySelectorAll('#l_purpose button').forEach(x=>x.classList.toggle('sel',x===b));});
   $('l_save').onclick=async()=>{if(existing){existing.lender=$('l_lender').value;existing.note=$('l_note').value;existing.purpose=curPurpose;const b=+$('l_bal').value;if(!isNaN(b))existing.balance=Math.max(0,Math.min(existing.total,b));}else{const total=+$('l_total').value||0;if(total<=0){toast('Enter loan amount');return;}mem.loans.push({id:uid(),lender:$('l_lender').value,total:total,balance:total,note:$('l_note').value,purpose:curPurpose,created:today()});}await save();closeSheet();toast(existing?'Saved':'Loan added');render();};
   if(existing){$('l_repay').onclick=()=>repayForm(existing);$('l_del').onclick=async()=>{mem.loans=mem.loans.filter(x=>x.id!==existing.id);mem.expenses=mem.expenses.filter(x=>x.loanId!==existing.id);await save();closeSheet();toast('Loan deleted');render();};}
 }
