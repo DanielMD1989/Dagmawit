@@ -15,7 +15,7 @@ if(!CFG.SUPABASE_URL || CFG.SUPABASE_URL.indexOf('PASTE')===0){
 }
 
 /* ---------- shared state ---------- */
-let mem = {orders:[], expenses:[], loans:[], rolls:[], events:[], customers:[], settings:{currency:'Birr'}};
+let mem = {orders:[], expenses:[], loans:[], rolls:[], events:[], customers:[], assets:[], settings:{currency:'Birr'}};
 let SHARED_ID = 'shared';   // single shared business document
 let saveTimer = null, realtimeChan = null, applyingRemote = false;
 
@@ -69,7 +69,7 @@ async function cloudLoad(){
   return true;
 }
 function normalize(d){
-  d=d||{};d.orders=d.orders||[];d.expenses=d.expenses||[];d.loans=d.loans||[];d.rolls=d.rolls||[];d.events=d.events||[];d.customers=d.customers||[];d.settings=d.settings||{currency:'Birr'};return d;
+  d=d||{};d.orders=d.orders||[];d.expenses=d.expenses||[];d.loans=d.loans||[];d.rolls=d.rolls||[];d.events=d.events||[];d.customers=d.customers||[];d.assets=d.assets||[];d.settings=d.settings||{currency:'Birr'};return d;
 }
 async function pushNow(){
   try{
@@ -128,9 +128,100 @@ window.addEventListener('focus',()=>{ refreshFromCloud(); });
 setInterval(()=>{ if(document.visibilityState==='visible' && navigator.onLine && !isDirty()) refreshFromCloud(); }, 25000);
 
 /* ============================================================
+   AUTO-BACKUP — rolling restore points (shared via cloud)
+   Stored in business_data row id='backups' as { points:[ {id,ts,label,auto,data} ] }
+   Keeps last MAX_POINTS. Auto-snapshots at most once/day per device.
+   ============================================================ */
+const BACKUP_ID='backups';
+const MAX_POINTS=12;
+const LS_LASTBACKUP='dagmawit:lastAutoBackup';
+async function loadBackups(){
+  try{
+    const {data,error}=await sb.from('business_data').select('content').eq('id',BACKUP_ID).maybeSingle();
+    if(error||!data||!data.content)return [];
+    return Array.isArray(data.content.points)?data.content.points:[];
+  }catch(e){return [];}
+}
+async function saveBackups(points){
+  try{
+    const {data}=await sb.from('business_data').select('id').eq('id',BACKUP_ID).maybeSingle();
+    if(data){await sb.from('business_data').update({content:{points:points},updated_at:new Date().toISOString()}).eq('id',BACKUP_ID);}
+    else{await sb.from('business_data').insert({id:BACKUP_ID,content:{points:points}});}
+    return true;
+  }catch(e){return false;}
+}
+function snapshotData(){return JSON.parse(JSON.stringify(mem));}
+function backupStats(d){
+  return (d.orders?d.orders.length:0)+' orders, '+(d.expenses?d.expenses.length:0)+' expenses, '+(d.customers?d.customers.length:0)+' customers';
+}
+async function makeBackup(label,auto){
+  if(!navigator.onLine)return false;
+  const points=await loadBackups();
+  points.unshift({id:Date.now().toString(),ts:new Date().toISOString(),label:label||(auto?'Auto backup':'Manual backup'),auto:!!auto,data:snapshotData()});
+  // keep most recent MAX_POINTS, but always keep at least the newest manual ones
+  const trimmed=points.slice(0,MAX_POINTS);
+  await saveBackups(trimmed);
+  return true;
+}
+async function maybeAutoBackup(){
+  // at most once per day per device
+  if(!navigator.onLine)return;
+  try{
+    const last=localStorage.getItem(LS_LASTBACKUP);
+    const todayStr=new Date().toISOString().slice(0,10);
+    if(last===todayStr)return;
+    const ok=await makeBackup('Auto backup',true);
+    if(ok)localStorage.setItem(LS_LASTBACKUP,todayStr);
+  }catch(e){}
+}
+async function restoreBackup(pointId){
+  const points=await loadBackups();
+  const p=points.find(x=>x.id===pointId);
+  if(!p||!p.data)return false;
+  // safety: snapshot current state before restoring, so a restore is itself undoable
+  await makeBackup('Before restore',true);
+  applyingRemote=true;
+  mem=normalize(p.data);
+  saveLocal();
+  applyingRemote=false;
+  await save();
+  render();
+  return true;
+}
+
+
+/* ============================================================
    DOMAIN LOGIC (same as the offline app)
    ============================================================ */
 const orderRemaining=o=>Math.max(0,o.total-o.paid);
+function renderWhoOwes(){
+  // group outstanding balances by customer
+  const owing=mem.orders.filter(o=>orderRemaining(o)>0);
+  if(!owing.length){openSheet('<h2>Who owes you</h2><div class="card"><div class="empty" style="padding:30px"><div class="e-ic">&#127881;</div>Nobody owes you right now &mdash; everything is collected!</div></div>');return;}
+  // aggregate per customer
+  const byCust={};
+  owing.forEach(o=>{const key=o.customerId||o.customer||'Unknown';(byCust[key]=byCust[key]||{name:o.customer||'Unknown',phone:o.phone||'',localOwed:0,fOwed:0,orders:[]});if(isForeign(o))byCust[key].fOwed+=orderRemaining(o);else byCust[key].localOwed+=orderRemaining(o);byCust[key].orders.push(o);});
+  const arr=Object.values(byCust).sort((a,b)=>(b.localOwed+b.fOwed)-(a.localOwed+a.fOwed));
+  const totalLocal=arr.reduce((s,c)=>s+c.localOwed,0);
+  const totalF=arr.reduce((s,c)=>s+c.fOwed,0);
+  let html='<h2>Who owes you</h2>';
+  html+='<div class="twostat"><div><div class="sl">Total owed</div><div class="sv" style="color:var(--accent)">'+money(totalLocal)+(totalF>0?' <span style="font-size:12px;color:var(--gold)">+ '+fmoney(totalF,FCUR())+'</span>':'')+'</div></div><div><div class="sl">Customers</div><div class="sv">'+arr.length+'</div></div></div>';
+  html+='<div class="hint">Sorted by amount owed. Tap &ldquo;Remind&rdquo; to send a friendly message.</div>';
+  html+='<div class="card">'+arr.map(c=>{
+    const amt=c.localOwed>0?money(c.localOwed):fmoney(c.fOwed,FCUR());
+    const both=(c.localOwed>0&&c.fOwed>0)?(' + '+fmoney(c.fOwed,FCUR())):'';
+    const remindBtn=c.phone?'<button class="remind-btn" data-remind="'+esc(c.phone)+'" data-rname="'+esc(c.name)+'" data-ramt="'+(c.localOwed>0?Math.round(c.localOwed):'')+'">Remind</button>':'';
+    return '<div class="item"><div class="ic" style="background:var(--accent-soft);color:var(--accent)">&#128176;</div><div class="body"><div class="t1">'+esc(c.name)+'</div><div class="t2">'+c.orders.length+' order'+(c.orders.length>1?'s':'')+' unpaid'+(c.phone?' &middot; '+esc(c.phone):'')+'</div></div><div style="text-align:right"><div class="amt" style="color:var(--accent)">'+amt+both+'</div>'+remindBtn+'</div></div>';
+  }).join('')+'</div>';
+  openSheet(html);
+  document.querySelectorAll('[data-remind]').forEach(b=>b.onclick=(e)=>{
+    e.stopPropagation();
+    const phone=b.dataset.remind, name=b.dataset.rname, amt=b.dataset.ramt;
+    const msg=encodeURIComponent('Hello '+name+', this is a friendly reminder about your outstanding balance'+(amt?' of '+CUR()+' '+Number(amt).toLocaleString():'')+' with us. Thank you!');
+    // open SMS; user can also copy to WhatsApp
+    window.location.href='sms:'+phone+'?&body='+msg;
+  });
+}
 const orderStatus=o=>o.paid>=o.total?'paid':(o.paid>0?'partial':'unpaid');
 const loanRepaid=l=>Math.max(0,l.total-l.balance);
 const bagRate=()=>+mem.settings.bagRate||0;
@@ -146,23 +237,37 @@ function incomeDateOf(o){
   return o.created;
 }
 function totalsForRange(from,to){
-  let received=0,owed=0,expBiz=0,expHome=0,loanPay=0,fReceived=0,fOwed=0;
+  let received=0,owed=0,expBiz=0,expHome=0,fReceived=0,fOwed=0,assets=0;
   const inR=d=>(!from||d>=from)&&(!to||d<=to);
   mem.orders.forEach(o=>{
     const idate=incomeDateOf(o);
     if(isForeign(o)){ fOwed+=orderRemaining(o); if(inR(idate))fReceived+=o.paid; }
     else { owed+=orderRemaining(o); if(inR(idate))received+=o.paid; }
   });
-  mem.expenses.forEach(e=>{if(!inR(e.date))return;if(e.loanId)loanPay+=e.amount;else if(e.scope==='home')expHome+=e.amount;else expBiz+=e.amount;});
-  return {received,owed,expBiz,expHome,loanPay,exp:expBiz+expHome+loanPay,fReceived,fOwed};
+  // Every expense (including loan repayments) is counted exactly once, in its
+  // own bucket by scope. A repayment is just a business or household expense
+  // depending on the loan's purpose (set when the repayment was logged).
+  mem.expenses.forEach(e=>{if(!inR(e.date))return;if(e.scope==='home')expHome+=e.amount;else expBiz+=e.amount;});
+  // Assets: money spent on owned things (car, machine). Reduces balance, not profit.
+  (mem.assets||[]).forEach(a=>{if(inR(a.date))assets+=(+a.value||0);});
+  // profit = what the business earns (income minus business costs only)
+  const profit=received-expBiz;
+  // balance = money actually in hand (income minus ALL outflows incl. household & assets)
+  const balance=received-expBiz-expHome-assets;
+  return {received,owed,expBiz,expHome,assets,exp:expBiz+expHome+assets,profit,balance,fReceived,fOwed,
+          // kept for backward-compat with any callers that referenced loanPay
+          loanPay:0};
 }
 function ymOf(d){return d.slice(0,7);}
 function prevYM(ym){const[y,m]=ym.split('-').map(Number);const d=new Date(y,m-2,1);return d.toISOString().slice(0,7);}
 function monthlyNets(){
   // returns array of {ym, label, income, exp, net} for every month with activity, newest first
+  // exp here = all spending that reduces BALANCE: every expense (incl. loan repayments,
+  // counted once) plus assets. Income minus this gives the month's change in cash on hand.
   const m={};
   mem.orders.forEach(o=>{if(isForeign(o))return;const ym=incomeDateOf(o).slice(0,7);(m[ym]=m[ym]||{inc:0,exp:0}).inc+=o.paid;});
   mem.expenses.forEach(e=>{const ym=(e.date||'').slice(0,7);if(!ym)return;(m[ym]=m[ym]||{inc:0,exp:0}).exp+=e.amount;});
+  (mem.assets||[]).forEach(a=>{const ym=(a.date||'').slice(0,7);if(!ym)return;(m[ym]=m[ym]||{inc:0,exp:0}).exp+=(+a.value||0);});
   return Object.keys(m).sort().reverse().map(ym=>({ym:ym,label:new Date(ym+'-01').toLocaleDateString('en',{month:'short',year:'numeric'}),income:m[ym].inc,exp:m[ym].exp,net:m[ym].inc-m[ym].exp}));
 }
 function monthlySeriesAsc(limit){
@@ -232,13 +337,13 @@ let tab='home';
 function setTab(t){
   tab=t;
   document.querySelectorAll('nav button[data-tab]').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
-  const titles={home:['Overview','Your business & home, one ledger'],orders:['Orders','Workload and delivered'],expenses:['Expenses','Everything you spend'],measurements:['Measurements','Customers & their sizes (cm)'],loans:['Loans','What you owe, and progress'],audit:['Financial audit','Exactly what is counted, by month'],reports:['Reports','Are you growing?']};
-  $('hdrTitle').textContent=titles[t][0];$('hdrSub').textContent=titles[t][1];render();
+  const titles={home:['Overview','Your business & home, one ledger'],orders:['Orders','Workload and delivered'],expenses:['Expenses','Everything you spend'],measurements:['Measurements','Customers & their sizes (cm)'],loans:['Loans','What you owe, and progress'],assets:['Assets','Things the business owns'],audit:['Financial audit','Exactly what is counted, by month'],reports:['Reports','Are you growing?']};
+  $('hdrTitle').textContent=(titles[t]||['',''])[0];$('hdrSub').textContent=(titles[t]||['',''])[1];render();
 }
 function render(){
   const v=$('view');if(!v)return;
-  const titleMap={home:'Overview',orders:'Orders',expenses:'Expenses',measurements:'Measurements',loans:'Loans',audit:'Financial audit',reports:'Reports'};
-  const body = tab==='home'?renderHome():tab==='orders'?renderOrders():tab==='expenses'?renderExpenses():tab==='measurements'?renderMeasurements():tab==='loans'?renderLoans():tab==='audit'?renderAudit():renderReports();
+  const titleMap={home:'Overview',orders:'Orders',expenses:'Expenses',measurements:'Measurements',loans:'Loans',assets:'Assets',audit:'Financial audit',reports:'Reports'};
+  const body = tab==='home'?renderHome():tab==='orders'?renderOrders():tab==='expenses'?renderExpenses():tab==='measurements'?renderMeasurements():tab==='loans'?renderLoans():tab==='assets'?renderAssets():tab==='audit'?renderAudit():renderReports();
   v.innerHTML='<div class="pagetitle">'+(titleMap[tab]||'')+'</div>'+body;
   wireDynamic();
 }
@@ -266,10 +371,11 @@ function renderHome(){
   const recent=allLedger().slice(0,4);
   const rec=recent.length?recent.map(ledgerRow).join(''):'<div class="empty"><div class="e-ic">&#9998;</div>No entries yet. Tap + to begin.</div>';
   // all-time totals
-  const at=totalsForRange(null,null);const atNet=at.received-at.exp;
+  const at=totalsForRange(null,null);const atNet=at.balance;
   const fLine=(r)=>r>0?'<div style="font-size:11.5px;color:var(--gold);margin-top:8px;position:relative">+ '+fmoney(r,FCUR())+' from website orders (kept separate)</div>':'';
   let html='';
-  html+='<div class="hero alt"><div class="lbl">Current balance &middot; all time</div><div class="big">'+(atNet<0?'&minus;':'')+money(Math.abs(atNet))+'</div><div class="delta" style="color:var(--muted)">Total made minus total spent, to date</div><div class="row"><div><div class="k">Total made</div><div class="v pos">'+money(at.received)+'</div></div><div><div class="k">Total spent</div><div class="v neg">'+money(at.exp)+'</div></div></div>'+fLine(at.fReceived)+'</div>';
+  html+='<div class="hero alt"><div class="lbl">Current balance &middot; all time</div><div class="big">'+(atNet<0?'&minus;':'')+money(Math.abs(atNet))+'</div><div class="delta" style="color:var(--muted)">Money in hand &mdash; total made minus everything spent</div><div class="row"><div><div class="k">Business profit</div><div class="v '+(at.profit>=0?'pos':'neg')+'">'+(at.profit<0?'&minus;':'')+money(Math.abs(at.profit))+'</div></div><div><div class="k">Household spent</div><div class="v neg">'+money(at.expHome)+'</div></div></div>'+(at.assets>0?'<div style="font-size:11.5px;color:var(--gold);margin-top:8px;position:relative">&minus; '+money(at.assets)+' in assets owned (car, machines &mdash; value kept, not lost)</div>':'')+fLine(at.fReceived)+'</div>';
+  html+='<div class="hint" style="margin:-2px 2px 10px;color:var(--muted)">Profit = income minus business costs (is the business earning?). Balance = profit minus household spending and assets (money actually in hand).</div>';
   html+='<div class="insights">'+cards+'</div>';
   if(alerts)html+='<div class="dash-section">Needs attention</div><div class="alerts">'+alerts+'</div>';
   // upcoming events section
@@ -303,14 +409,19 @@ function renderOrders(){
   const orders=[...mem.orders].sort((a,b)=>(b.id>a.id?1:-1));
   const owed=orders.filter(o=>!isForeign(o)).reduce((s,o)=>s+orderRemaining(o),0);
   const fowed=orders.filter(o=>isForeign(o)).reduce((s,o)=>s+orderRemaining(o),0);
-  const pending=orders.filter(o=>!o.delivered);
-  const done=orders.filter(o=>o.delivered);
   const owedDisplay=money(owed)+(fowed>0?' <span style="font-size:12px;color:var(--gold)">+ '+fmoney(fowed,FCUR())+'</span>':'');
-  let html='<div class="twostat"><div><div class="sl">Owed to you</div><div class="sv" style="color:var(--accent)">'+owedDisplay+'</div></div><div><div class="sl">To deliver</div><div class="sv">'+pending.length+'</div></div></div>';
+  let html='<div class="twostat"><div class="tap-owes" style="cursor:pointer"><div class="sl">Owed to you &rsaquo;</div><div class="sv" style="color:var(--accent)">'+owedDisplay+'</div></div><div><div class="sl">To deliver</div><div class="sv">'+orders.filter(o=>!o.delivered).length+'</div></div></div>';
   if(!orders.length){return html+'<div class="card"><div class="empty"><div class="e-ic">&#10022;</div>No orders yet. Tap + &rarr; New order.</div></div>';}
+  html+='<input class="searchbox" id="ord_search" placeholder="&#128269; Search orders by customer, item, phone" value="'+esc(ordSearch)+'">';
+  const q=ordSearch.trim().toLowerCase();
+  const match=o=>!q||((o.customer||'').toLowerCase().includes(q)||(o.clothType||'').toLowerCase().includes(q)||(o.phone||'').includes(q));
+  const fil=orders.filter(match);
+  const pending=fil.filter(o=>!o.delivered);
+  const done=fil.filter(o=>o.delivered);
+  if(q&&!fil.length){html+='<div class="card"><div class="empty" style="padding:20px">No order matches &ldquo;'+esc(ordSearch)+'&rdquo;.</div></div>';return html;}
   // Workload (flat, active)
   html+='<div class="dash-section">Workload &middot; to deliver ('+pending.length+')</div>';
-  html+=pending.length?'<div class="card">'+pending.map(orderCardHtml).join('')+'</div>':'<div class="card"><div class="empty" style="padding:18px">Nothing pending &mdash; all caught up &#10003;</div></div>';
+  html+=pending.length?'<div class="card">'+pending.map(orderCardHtml).join('')+'</div>':'<div class="card"><div class="empty" style="padding:18px">'+(q?'No pending match.':'Nothing pending &mdash; all caught up &#10003;')+'</div></div>';
   // Delivered, grouped by month (expandable)
   if(done.length){
     html+='<div class="dash-section">Delivered ('+done.length+')</div>';
@@ -365,9 +476,12 @@ function renderExpenses(){
   let html='<div class="twostat"><div><div class="sl">'+labelMap[expFilter]+(expCat?' &middot; '+expCat:'')+' &middot; this month</div><div class="sv" style="color:var(--accent)">'+money(total)+'</div></div><div><div class="sl">Entries</div><div class="sv">'+list.length+'</div></div></div>';
   if(expCat)html+='<div class="filterbar"><button class="on" id="exp_clearcat">&times; '+expCat+' &mdash; show all</button></div>';
   else html+='<div class="filterbar">'+[['all','All'],['biz','Business'],['home','Household']].map(f=>'<button data-expf="'+f[0]+'" class="'+(expFilter===f[0]?'on':'')+'">'+f[1]+'</button>').join('')+'</div>';
+  html+='<input class="searchbox" id="exp_search" placeholder="&#128269; Search expenses by category, note, person" value="'+esc(expSearch)+'">';
+  const xq=expSearch.trim().toLowerCase();
+  if(xq)list=list.filter(e=>((e.cat||'').toLowerCase().includes(xq)||(e.note||'').toLowerCase().includes(xq)||(e.employee||'').toLowerCase().includes(xq)||(e.loanId?'loan repayment':'').includes(xq)));
   if(dupCount>0)html+='<div class="alert due" style="margin-bottom:10px"><span class="dot"></span><span><b>'+dupCount+' possible duplicate'+(dupCount>1?'s':'')+'</b> found (same category, amount &amp; date). Tap one to review or delete.</span></div>';
   if(!list.length){
-    html+='<div class="card"><div class="empty" style="padding:22px"><div class="e-ic">&#128178;</div>No expenses here yet. Tap + &rarr; Expense.</div></div>';
+    html+='<div class="card"><div class="empty" style="padding:22px"><div class="e-ic">&#128178;</div>'+(xq?'No expense matches &ldquo;'+esc(expSearch)+'&rdquo;.':'No expenses here yet. Tap + &rarr; Expense.')+'</div></div>';
     return html;
   }
   // group by month, expandable (newest month open)
@@ -391,8 +505,37 @@ function renderExpenses(){
 function renderLoans(){
   const loans=[...mem.loans].sort((a,b)=>b.balance-a.balance);
   const totalBal=loans.reduce((s,l)=>s+l.balance,0);const totalBorrowed=loans.reduce((s,l)=>s+l.total,0);
-  const list=loans.length?loans.map(l=>{const repaid=loanRepaid(l),pct=l.total>0?Math.round(repaid/l.total*100):0;const cleared=l.balance<=0;return '<div class="item" data-loan="'+l.id+'"><div class="ic loan">&#9672;</div><div class="body"><div class="t1">'+esc(l.lender||'Loan')+'</div><div class="t2">'+money(repaid)+' repaid of '+money(l.total)+(l.note?' &middot; '+esc(l.note):'')+'</div><span class="pill '+(cleared?'paid':'partial')+'">'+(cleared?'Cleared &#10003;':money(l.balance)+' left')+'</span><div class="prog"><i style="width:'+pct+'%;background:var(--purple)"></i></div></div><div class="amt">'+pct+'%</div></div>';}).join(''):'<div class="empty"><div class="e-ic">&#9672;</div>No loans tracked. Tap + &rarr; Add a loan.</div>';
-  return '<div class="twostat"><div><div class="sl">Still to repay</div><div class="sv" style="color:var(--purple)">'+money(totalBal)+'</div></div><div><div class="sl">Total borrowed</div><div class="sv">'+money(totalBorrowed)+'</div></div></div><div class="card">'+list+'</div>'+(loans.length?'<div class="hint" style="text-align:center;margin-top:10px">Tap a loan to log a repayment.</div>':'');
+  const list=loans.length?loans.map(l=>{const repaid=loanRepaid(l),pct=l.total>0?Math.round(repaid/l.total*100):0;const cleared=l.balance<=0;const pl=(l.purpose==='household')?'<span class="pill home" style="margin-left:4px">Household</span>':'<span class="pill" style="margin-left:4px;background:var(--card2);color:var(--muted)">Business</span>';return '<div class="item" data-loan="'+l.id+'"><div class="ic loan">&#9672;</div><div class="body"><div class="t1">'+esc(l.lender||'Loan')+'</div><div class="t2">'+money(repaid)+' repaid of '+money(l.total)+(l.note?' &middot; '+esc(l.note):'')+'</div><span class="pill '+(cleared?'paid':'partial')+'">'+(cleared?'Cleared &#10003;':money(l.balance)+' left')+'</span>'+pl+'<div class="prog"><i style="width:'+pct+'%;background:var(--purple)"></i></div></div><div class="amt">'+pct+'%</div></div>';}).join(''):'<div class="empty"><div class="e-ic">&#9672;</div>No loans tracked. Tap + &rarr; Add a loan.</div>';
+  return '<div class="twostat"><div><div class="sl">Still to repay</div><div class="sv" style="color:var(--purple)">'+money(totalBal)+'</div></div><div><div class="sl">Total borrowed</div><div class="sv">'+money(totalBorrowed)+'</div></div></div><div class="card">'+list+'</div>'+(loans.length?'<div class="hint" style="text-align:center;margin-top:10px">Tap a loan to log a repayment. Business loans reduce profit; household loans reduce balance only.</div>':'');
+}
+
+function renderAssets(){
+  const assets=[...(mem.assets||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const totalVal=assets.reduce((s,a)=>s+(+a.value||0),0);
+  const list=assets.length?assets.map(a=>{
+    return '<div class="item" data-asset="'+a.id+'"><div class="ic" style="background:var(--gold-soft);color:var(--gold)">&#127981;</div><div class="body"><div class="t1">'+esc(a.name||'Asset')+'</div><div class="t2">'+(a.date||'')+(a.note?' &middot; '+esc(a.note):'')+'</div></div><div class="amt">'+money(a.value||0)+'</div></div>';
+  }).join(''):'<div class="empty"><div class="e-ic">&#127981;</div>No assets yet. Tap + &rarr; Asset to add a car, machine, or tools the business owns.</div>';
+  return '<div class="twostat"><div><div class="sl">Total assets owned</div><div class="sv" style="color:var(--gold)">'+money(totalVal)+'</div></div><div><div class="sl">Items</div><div class="sv">'+assets.length+'</div></div></div><div class="hint" style="margin:-2px 0 10px">Things the business owns (car, machine, tools). Their cost comes out of your balance but is kept as owned value &mdash; it does not reduce profit.</div><div class="card">'+list+'</div>'+(assets.length?'<div class="hint" style="text-align:center;margin-top:10px">Tap an asset to edit &middot; swipe left to delete.</div>':'');
+}
+function assetForm(existing){
+  const a=existing||{};
+  let html='<h2>'+(existing?'Edit asset':'Add asset')+'</h2>';
+  html+='<div class="hint" style="margin-bottom:8px">A big thing the business owns &mdash; a car, sewing machine, equipment. Its cost reduces your balance (money in hand) but not your profit, because you still own the value.</div>';
+  html+='<label>Asset name</label><input id="a_name" value="'+esc(a.name||'')+'" placeholder="e.g. Sewing machine, Delivery car">';
+  html+='<label>Value / cost ('+CUR()+')</label><input id="a_value" type="number" inputmode="decimal" value="'+(a.value||'')+'" placeholder="0">';
+  html+='<label>Date acquired</label><input id="a_date" type="date" value="'+(a.date||today())+'">';
+  html+='<label>Note (optional)</label><input id="a_note" value="'+esc(a.note||'')+'" placeholder="e.g. second-hand, for deliveries">';
+  html+='<button class="save" id="a_save">'+(existing?'Save asset':'Add asset')+'</button>';
+  if(existing)html+='<button class="ghost del" id="a_del">Delete asset</button>';
+  openSheet(html);
+  $('a_save').onclick=async()=>{
+    const name=$('a_name').value.trim();if(!name){toast('Enter a name');return;}
+    const value=+$('a_value').value||0;if(value<=0){toast('Enter a value');return;}
+    const data={name:name,value:value,date:$('a_date').value||today(),note:$('a_note').value};
+    if(existing)Object.assign(existing,data);else mem.assets.push(Object.assign({id:uid()},data));
+    await save();closeSheet();savedTick(existing?'Asset updated':'Asset added');render();
+  };
+  if(existing)$('a_del').onclick=async()=>{mem.assets=mem.assets.filter(x=>x.id!==existing.id);await save();closeSheet();toast('Asset deleted');render();};
 }
 
 function allLedger(){
@@ -425,6 +568,8 @@ function lineChart(series){
   return '<div class="chartwrap"><svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'" xmlns="http://www.w3.org/2000/svg"><line x1="'+P+'" y1="'+(H-P)+'" x2="'+(W-P)+'" y2="'+(H-P)+'" stroke="var(--line)" stroke-width="1"/><path d="'+path('cost')+'" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/><path d="'+path('income')+'" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'+dots('cost')+dots('income')+labels+'</svg></div><div class="legend"><span><i style="background:var(--green)"></i>Income</span><span><i style="background:var(--accent)"></i>Cost</span></div>';
 }
 let custSearch='';
+let ordSearch='';
+let expSearch='';
 function findCustomerById(id){return mem.customers.find(c=>c.id===id);}
 function findCustomerByName(name){const n=(name||'').trim().toLowerCase();return mem.customers.find(c=>(c.name||'').trim().toLowerCase()===n);}
 function upsertCustomer(name,phone,measurements){
@@ -468,7 +613,12 @@ function customerForm(existing){
   html+='<label style="margin-top:14px">Notes (optional)</label><input id="c_note" value="'+esc(c.note||'')+'" placeholder="fit preferences, etc.">';
   if(existing){
     const ords=ordersForCustomerId(c.id,c.name);
-    if(ords.length)html+='<div class="dash-section" style="font-size:16px">Order history</div><div class="card">'+ords.sort((a,b)=>b.created.localeCompare(a.created)).map(o=>'<div class="item" data-order="'+o.id+'"><div class="ic sale">&#10022;</div><div class="body"><div class="t1">'+esc(o.clothType||'Order')+'</div><div class="t2">'+o.created+' &middot; '+orderStatus(o)+'</div></div><div class="amt in">'+(isForeign(o)?FCUR():CUR())+' '+Math.round(o.total).toLocaleString()+'</div></div>').join('')+'</div>';
+    if(ords.length){
+      const totalSpent=ords.filter(o=>!isForeign(o)).reduce((s,o)=>s+(o.paid||0),0);
+      const totalValue=ords.filter(o=>!isForeign(o)).reduce((s,o)=>s+(o.total||0),0);
+      html+='<div class="twostat" style="margin-top:14px"><div><div class="sl">Orders</div><div class="sv">'+ords.length+'</div></div><div><div class="sl">Total paid you</div><div class="sv" style="color:var(--green)">'+money(totalSpent)+'</div></div></div>';
+      html+='<div class="dash-section" style="font-size:16px">Order history</div><div class="card">'+ords.sort((a,b)=>b.created.localeCompare(a.created)).map(o=>'<div class="item" data-order="'+o.id+'"><div class="ic sale">&#10022;</div><div class="body"><div class="t1">'+esc(o.clothType||'Order')+'</div><div class="t2">'+o.created+' &middot; '+orderStatus(o)+'</div></div><div class="amt in">'+(isForeign(o)?FCUR():CUR())+' '+Math.round(o.total).toLocaleString()+'</div></div>').join('')+'</div>';
+    }
   }
   html+='<button class="save" id="c_save">'+(existing?'Save customer':'Add customer')+'</button>';
   if(existing)html+='<button class="ghost del" id="c_del">Delete customer</button>';
@@ -624,7 +774,7 @@ function openSheet(html){
   sheet.addEventListener('touchstart',exOnStart,{passive:true});
   sheet.addEventListener('touchmove',exOnMove,{passive:true});
   sheet.addEventListener('touchend',exOnEnd);
-  document.querySelectorAll('.addopt').forEach(b=>b.onclick=()=>{const t=b.dataset.t;if(t==='order')orderForm();else if(t==='expense')expenseForm('biz');else if(t==='home')expenseForm('home');else if(t==='loan')loanForm();else if(t==='bazar')bazarForm();else if(t==='incomegroup')incomeMenu();else if(t==='expensegroup')expenseMenu();else if(t==='event')eventForm();});
+  document.querySelectorAll('.addopt').forEach(b=>b.onclick=()=>{const t=b.dataset.t;if(t==='order')orderForm();else if(t==='expense')expenseForm('biz');else if(t==='home')expenseForm('home');else if(t==='loan')loanForm();else if(t==='bazar')bazarForm();else if(t==='incomegroup')incomeMenu();else if(t==='expensegroup')expenseMenu();else if(t==='event')eventForm();else if(t==='asset')assetForm();});
 }
 function closeSheet(){scrim.classList.remove('show');sheet.classList.remove('show');sheet.style.transform='';scrim.style.opacity='';unlockScroll();}
 scrim.onclick=closeSheet;
@@ -814,31 +964,60 @@ function eventForm(existing){
 
 function loanForm(existing){
   const l=existing||{};
+  const purpose=l.purpose||'business';
   let html='<h2>'+(existing?'Loan':'Add a loan')+'</h2><label>Lender / source</label><input id="l_lender" value="'+esc(l.lender||'')+'" placeholder="e.g. Bank, cousin">';
   html+='<label>Total loan amount ('+CUR()+')</label><input id="l_total" type="number" inputmode="decimal" value="'+(l.total||'')+'" placeholder="0" '+(existing?'disabled style="opacity:.5"':'')+'>';
+  html+='<label>What was this loan for?</label><div class="seg" id="l_purpose"><button type="button" data-p="business" class="'+(purpose==='business'?'on':'')+'">Business</button><button type="button" data-p="household" class="'+(purpose==='household'?'on':'')+'">Household</button></div>';
+  html+='<div class="hint" style="margin:-4px 0 8px">Business = bought stock/materials the business runs on (repayments reduce profit). Household = personal use (repayments reduce balance only, never profit).</div>';
   if(existing)html+='<label>Current balance ('+CUR()+')</label><input id="l_bal" type="number" inputmode="decimal" value="'+l.balance+'">';
   html+='<label>Note (optional)</label><input id="l_note" value="'+esc(l.note||'')+'" placeholder="e.g. monthly due 5th">';
   if(existing)html+='<div class="balbox"><span class="bl">Repaid</span><span class="bv">'+money(loanRepaid(l))+' of '+money(l.total)+'</span></div>';
   html+='<button class="save" id="l_save">'+(existing?'Save':'Add loan')+'</button>';
   if(existing)html+='<button class="ghost" id="l_repay" style="color:var(--purple);font-weight:600">&#65291; Log a repayment</button><button class="ghost del" id="l_del">Delete loan</button>';
   openSheet(html);
-  $('l_save').onclick=async()=>{if(existing){existing.lender=$('l_lender').value;existing.note=$('l_note').value;const b=+$('l_bal').value;if(!isNaN(b))existing.balance=Math.max(0,Math.min(existing.total,b));}else{const total=+$('l_total').value||0;if(total<=0){toast('Enter loan amount');return;}mem.loans.push({id:uid(),lender:$('l_lender').value,total:total,balance:total,note:$('l_note').value,created:today()});}await save();closeSheet();toast(existing?'Saved':'Loan added');render();};
+  let curPurpose=purpose;
+  document.querySelectorAll('#l_purpose button').forEach(b=>b.onclick=()=>{curPurpose=b.dataset.p;document.querySelectorAll('#l_purpose button').forEach(x=>x.classList.toggle('on',x===b));});
+  $('l_save').onclick=async()=>{if(existing){existing.lender=$('l_lender').value;existing.note=$('l_note').value;existing.purpose=curPurpose;const b=+$('l_bal').value;if(!isNaN(b))existing.balance=Math.max(0,Math.min(existing.total,b));}else{const total=+$('l_total').value||0;if(total<=0){toast('Enter loan amount');return;}mem.loans.push({id:uid(),lender:$('l_lender').value,total:total,balance:total,note:$('l_note').value,purpose:curPurpose,created:today()});}await save();closeSheet();toast(existing?'Saved':'Loan added');render();};
   if(existing){$('l_repay').onclick=()=>repayForm(existing);$('l_del').onclick=async()=>{mem.loans=mem.loans.filter(x=>x.id!==existing.id);mem.expenses=mem.expenses.filter(x=>x.loanId!==existing.id);await save();closeSheet();toast('Loan deleted');render();};}
 }
 function repayForm(loan){
-  openSheet('<h2>Repay: '+esc(loan.lender||'loan')+'</h2><div class="hint" style="margin-bottom:6px">'+money(loan.balance)+' remaining</div><label>Repayment amount ('+CUR()+')</label><input id="r_amt" type="number" inputmode="decimal" placeholder="0"><label>Date</label><input id="r_date" type="date" value="'+today()+'"><button class="save" id="r_save">Log repayment</button>');
-  $('r_save').onclick=async()=>{const amt=+$('r_amt').value||0;if(amt<=0){toast('Enter an amount');return;}const pay=Math.min(loan.balance,amt);loan.balance=Math.max(0,loan.balance-pay);mem.expenses.push({id:uid(),cat:'Loan repay',amount:pay,date:$('r_date').value,note:loan.lender,scope:'biz',loanId:loan.id,recurring:false,freq:'once'});await save();closeSheet();toast(loan.balance===0?'Loan cleared! &#10003;':'Repayment logged');render();};
+  const isHome=loan.purpose==='household';
+  const bucketLabel=isHome?'household expense':'business expense';
+  openSheet('<h2>Repay: '+esc(loan.lender||'loan')+'</h2><div class="hint" style="margin-bottom:6px">'+money(loan.balance)+' remaining &middot; recorded as a '+bucketLabel+'</div><label>Repayment amount ('+CUR()+')</label><input id="r_amt" type="number" inputmode="decimal" placeholder="0"><label>Date</label><input id="r_date" type="date" value="'+today()+'"><button class="save" id="r_save">Log repayment</button>');
+  $('r_save').onclick=async()=>{const amt=+$('r_amt').value||0;if(amt<=0){toast('Enter an amount');return;}const pay=Math.min(loan.balance,amt);loan.balance=Math.max(0,loan.balance-pay);mem.expenses.push({id:uid(),cat:'Loan repayment',amount:pay,date:$('r_date').value,note:loan.lender,scope:isHome?'home':'biz',loanId:loan.id,recurring:false,freq:'once'});await save();closeSheet();toast(loan.balance===0?'Loan cleared! &#10003;':'Repayment logged');render();};
 }
 function bagRateForm(){
   openSheet('<h2>Packaging bag cost</h2><label>Cost per bag ('+CUR()+')</label><input id="bg_rate" type="number" inputmode="decimal" value="'+(bagRate()||'')+'" placeholder="0"><div class="hint">Added automatically to every <b>new</b> order. Include bag fabric + logo print + making cost per bag. Past orders keep their original rate.</div><button class="save" id="bg_save">Save bag rate</button>');
   $('bg_save').onclick=async()=>{const v=+$('bg_rate').value||0;mem.settings.bagRate=v;await save();closeSheet();toast('Bag rate saved');render();};
 }
 function settingsForm(){
-  openSheet('<h2>Settings &amp; account</h2><label>Local currency label</label><input id="s_cur" value="'+esc(CUR())+'" placeholder="Birr, ETB, $..."><label>Website / foreign currency</label><input id="s_fcur" value="'+esc(FCUR())+'" placeholder="USD"><button class="save" id="s_save">Save</button><button class="ghost" id="s_bag" style="margin-top:10px">&#128717; Packaging bag cost: '+(bagRate()>0?money(bagRate()):'not set')+'</button><div class="hint" style="margin-top:18px">Signed in as <b>'+esc(currentEmail||'')+'</b>. Your data lives in the cloud and syncs live with your partner.</div><button class="ghost" id="s_export">&#11015; Download a backup copy</button><button class="ghost del" id="s_signout">Sign out</button>');
+  openSheet('<h2>Settings &amp; account</h2><label>Local currency label</label><input id="s_cur" value="'+esc(CUR())+'" placeholder="Birr, ETB, $..."><label>Website / foreign currency</label><input id="s_fcur" value="'+esc(FCUR())+'" placeholder="USD"><button class="save" id="s_save">Save</button><button class="ghost" id="s_bag" style="margin-top:10px">&#128717; Packaging bag cost: '+(bagRate()>0?money(bagRate()):'not set')+'</button><div class="hint" style="margin-top:18px">Signed in as <b>'+esc(currentEmail||'')+'</b>. Your data lives in the cloud and syncs live with your partner.</div><button class="ghost" id="s_restore">&#128190; Backups &amp; restore</button><button class="ghost" id="s_export">&#11015; Download a backup copy</button><button class="ghost del" id="s_signout">Sign out</button>');
   $('s_save').onclick=async()=>{mem.settings.currency=$('s_cur').value||'Birr';mem.settings.fcurrency=$('s_fcur').value||'USD';await save();closeSheet();toast('Saved');render();};
   $('s_bag').onclick=bagRateForm;
   $('s_export').onclick=()=>{const blob=new Blob([JSON.stringify(mem,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='dagmawit-backup-'+today()+'.json';a.click();};
+  $('s_restore').onclick=backupsForm;
   $('s_signout').onclick=async()=>{await sb.auth.signOut();location.reload();};
+}
+function backupsForm(){
+  openSheet('<h2>Backups &amp; restore</h2><div class="hint">Automatic safety copies of your whole business, kept in the cloud and shared with your partner. Restore any one if something goes wrong.</div><button class="save" id="b_now" style="margin:14px 0">&#128190; Back up now</button><div id="b_list" style="margin-top:6px"><div class="empty" style="padding:20px">Loading backups&hellip;</div></div>');
+  $('b_now').onclick=async()=>{$('b_now').textContent='Backing up…';const ok=await makeBackup('Manual backup',false);toast(ok?'Backup saved':'Could not back up (offline?)');loadBackupList();$('b_now').innerHTML='&#128190; Back up now';};
+  loadBackupList();
+}
+async function loadBackupList(){
+  const el=$('b_list');if(!el)return;
+  const points=await loadBackups();
+  if(!points.length){el.innerHTML='<div class="empty" style="padding:20px">No backups yet. Tap &ldquo;Back up now&rdquo; to make your first one.</div>';return;}
+  el.innerHTML='<div class="card">'+points.map(p=>{
+    const d=new Date(p.ts);
+    const when=d.toLocaleDateString('en',{month:'short',day:'numeric',year:'numeric'})+' &middot; '+d.toLocaleTimeString('en',{hour:'numeric',minute:'2-digit'});
+    return '<div class="item" style="cursor:pointer" data-restore="'+p.id+'"><div class="body"><div class="t1">'+esc(p.label||'Backup')+(p.auto?' <span style="font-size:11px;color:var(--muted)">(auto)</span>':'')+'</div><div class="t2">'+when+' &middot; '+backupStats(p.data||{})+'</div></div><div class="amt" style="font-size:12px;color:var(--accent)">Restore &rsaquo;</div></div>';
+  }).join('')+'</div>';
+  el.querySelectorAll('[data-restore]').forEach(b=>b.onclick=async()=>{
+    if(!confirm('Restore this backup? Your current data will be replaced (a safety copy is made first, so you can undo).'))return;
+    b.querySelector('.amt').textContent='Restoring…';
+    const ok=await restoreBackup(b.dataset.restore);
+    if(ok){toast('Restored');closeSheet();}else{toast('Restore failed');}
+  });
 }
 
 /* ============================================================
@@ -850,10 +1029,11 @@ async function deleteEntity(kind,id){
   else if(kind==='loan')mem.loans=mem.loans.filter(x=>x.id!==id);
   else if(kind==='cust')mem.customers=mem.customers.filter(x=>x.id!==id);
   else if(kind==='event')mem.events=mem.events.filter(x=>x.id!==id);
+  else if(kind==='asset')mem.assets=mem.assets.filter(x=>x.id!==id);
   await save();savedTick('Deleted');render();
 }
 function attachSwipeDelete(){
-  const map=[['data-order','order'],['data-exp','exp'],['data-loan','loan'],['data-cust','cust'],['data-event','event']];
+  const map=[['data-order','order'],['data-exp','exp'],['data-loan','loan'],['data-cust','cust'],['data-event','event'],['data-asset','asset']];
   map.forEach(([attr,kind])=>{
     document.querySelectorAll('.item['+attr+']').forEach(item=>{
       if(item.dataset.swipeWired)return; item.dataset.swipeWired='1';
@@ -883,15 +1063,19 @@ function wireDynamic(){
   document.querySelectorAll('[data-exp]').forEach(el=>el.onclick=()=>{const e=mem.expenses.find(x=>x.id===el.dataset.exp);if(e){if(e.rollId){toast('Fabric use is recorded — edit the roll or order');}else expenseForm(e.scope,e);}});
   document.querySelectorAll('[data-loan]').forEach(el=>el.onclick=()=>{const l=mem.loans.find(x=>x.id===el.dataset.loan);if(l)loanForm(l);});
   document.querySelectorAll('[data-event]').forEach(el=>el.onclick=()=>{const ev=mem.events.find(x=>x.id===el.dataset.event);if(ev)eventForm(ev);});
+  document.querySelectorAll('[data-asset]').forEach(el=>el.onclick=()=>{const a=mem.assets.find(x=>x.id===el.dataset.asset);if(a)assetForm(a);});
   document.querySelectorAll('[data-gran]').forEach(b=>b.onclick=()=>{repGran=b.dataset.gran;render();});
   document.querySelectorAll('[data-expf]').forEach(b=>b.onclick=()=>{expFilter=b.dataset.expf;expCat=null;render();});
   document.querySelectorAll('.tapbar').forEach(b=>b.onclick=()=>{const sc=b.dataset.goscope;expFilter=sc==='home'?'home':'biz';expCat=b.dataset.gocat||null;setTab('expenses');});
   document.querySelectorAll('.tap-pending').forEach(b=>b.onclick=()=>setTab('orders'));
+  document.querySelectorAll('.tap-owes').forEach(b=>b.onclick=()=>renderWhoOwes());
   document.querySelectorAll('[data-gomonth]').forEach(b=>b.onclick=()=>renderMonthDetail(b.dataset.gomonth));
   document.querySelectorAll('[data-mgroup]').forEach(b=>b.onclick=()=>{const ym=b.dataset.mgroup;const body=$('mg_'+ym);if(body){const showing=body.classList.contains('show');body.classList.toggle('show');const c=b.querySelector('.mh-caret');if(c)c.innerHTML=showing?'&#9656;':'&#9662;';}});
   document.querySelectorAll('[data-mgroupx]').forEach(b=>b.onclick=()=>{const ym=b.dataset.mgroupx;const body=$('xg_'+ym);if(body){const showing=body.classList.contains('show');body.classList.toggle('show');const c=b.querySelector('.mh-caret');if(c)c.innerHTML=showing?'&#9656;':'&#9662;';}});
   const ecc=$('exp_clearcat');if(ecc)ecc.onclick=()=>{expCat=null;render();};
   const cs=$('cust_search');if(cs)cs.oninput=()=>{custSearch=cs.value;const v=renderMeasurements();const view=$('view');view.innerHTML=v;wireDynamic();const cs2=$('cust_search');if(cs2){cs2.focus();cs2.setSelectionRange(cs2.value.length,cs2.value.length);}};
+  const os=$('ord_search');if(os)os.oninput=()=>{ordSearch=os.value;const view=$('view');view.innerHTML=renderOrders();wireDynamic();const o2=$('ord_search');if(o2){o2.focus();o2.setSelectionRange(o2.value.length,o2.value.length);}};
+  const xs=$('exp_search');if(xs)xs.oninput=()=>{expSearch=xs.value;const view=$('view');view.innerHTML=renderExpenses();wireDynamic();const x2=$('exp_search');if(x2){x2.focus();x2.setSelectionRange(x2.value.length,x2.value.length);}};
   const ca=$('cust_add');if(ca)ca.onclick=()=>customerForm();
   document.querySelectorAll('[data-cust]').forEach(el=>el.onclick=()=>{const c=mem.customers.find(x=>x.id===el.dataset.cust);if(c)customerForm(c);});
   const sb2=$('setBtn');if(sb2)sb2.onclick=settingsForm;
@@ -929,6 +1113,7 @@ $('addBtn').onclick=()=>openSheet('<h2>Add</h2>'
   +'<div class="addsection">More</div><div class="addgrid">'
   +'<button class="addopt" data-t="event"><span class="ce">&#127881;</span>Event</button>'
   +'<button class="addopt" data-t="loan"><span class="ce">&#9672;</span>Loan</button>'
+  +'<button class="addopt" data-t="asset"><span class="ce">&#127981;</span>Asset</button>'
   +'</div>');
 function incomeMenu(){openSheet('<h2>Add income</h2><div class="cats" style="grid-template-columns:repeat(2,1fr)"><button class="addopt" data-t="order"><span class="ce">&#10022;</span>Customer order</button><button class="addopt" data-t="bazar"><span class="ce">&#129509;</span>Bazar sale (cash)</button></div><div class="hint" style="margin-top:14px;text-align:center">A <b>customer order</b> may be paid in advance, on delivery, or in parts &mdash; open the order later to add payments. A <b>bazar sale</b> is direct cash on the spot.</div>');}
 function expenseMenu(){openSheet('<h2>Add expense</h2><div class="cats" style="grid-template-columns:repeat(2,1fr)"><button class="addopt" data-t="expense"><span class="ce">&#128666;</span>Business expense</button><button class="addopt" data-t="home"><span class="ce">&#127968;</span>Household expense</button><button class="addopt" data-t="loan"><span class="ce">&#9672;</span>Loan</button></div><div class="hint" style="margin-top:14px;text-align:center">Business and household are tracked separately in your reports. Fabric, thread, buttons, transport &mdash; all go under Business expense.</div>');}
@@ -949,6 +1134,8 @@ async function bootSession(){
   if(!ok){ toast('Could not load data'); }
   subscribeRealtime();
   showApp(); setSync('synced'); render();
+  // make a daily safety snapshot in the background (non-blocking)
+  setTimeout(()=>{ maybeAutoBackup(); }, 4000);
 }
 
 $('au_signin').onclick=async()=>{
