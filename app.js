@@ -336,12 +336,12 @@ let tab='home';
 function setTab(t){
   tab=t;
   document.querySelectorAll('nav button[data-tab]').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
-  const titles={home:['Overview','Your business & home, one ledger'],orders:['Orders','Workload and delivered'],expenses:['Expenses','Everything you spend'],measurements:['Measurements','Customers & their sizes (cm)'],loans:['Loans','What you owe, and progress'],assets:['Assets','Things the business owns'],audit:['Financial audit','Exactly what is counted, by month'],reports:['Reports','Are you growing?']};
+  const titles={home:['Overview','Your business & home, one ledger'],orders:['Orders','Workload and delivered'],expenses:['Expenses','Everything you spend'],measurements:['Customers','Your customer library & their sizes'],loans:['Loans','What you owe, and progress'],assets:['Assets','Things the business owns'],audit:['Check the numbers','Exactly what is counted, by month'],reports:['Reports','Are you growing?']};
   $('hdrTitle').textContent=(titles[t]||['',''])[0];$('hdrSub').textContent=(titles[t]||['',''])[1];render();
 }
 function render(){
   const v=$('view');if(!v)return;
-  const titleMap={home:'Overview',orders:'Orders',expenses:'Expenses',measurements:'Measurements',loans:'Loans',assets:'Assets',audit:'Financial audit',reports:'Reports'};
+  const titleMap={home:'Overview',orders:'Orders',expenses:'Expenses',measurements:'Customers',loans:'Loans',assets:'Assets',audit:'Check the numbers',reports:'Reports'};
   const body = tab==='home'?renderHome():tab==='orders'?renderOrders():tab==='expenses'?renderExpenses():tab==='measurements'?renderMeasurements():tab==='loans'?renderLoans():tab==='assets'?renderAssets():tab==='audit'?renderAudit():renderReports();
   v.innerHTML='<div class="pagetitle">'+(titleMap[tab]||'')+'</div>'+body;
   wireDynamic();
@@ -909,37 +909,33 @@ function expenseForm(scope,existing){
   }
   const bizCats=[['Fabric','&#129525;'],['Salaries','&#128101;'],['Accessories','&#9988;'],['Transport','&#128666;'],['Bazar','&#128717;'],['Shipment','&#128230;'],['Fuel','&#9981;'],['Other','&middot;']];
   const homeCats=[['Grocery','&#129004;'],['Rent','&#127968;'],['Salaries','&#128101;'],['School','&#127890;'],['Other','&middot;']];
-  const cats=scope==='home'?homeCats:bizCats;
-  fs={cat:e.cat||cats[0][0],freq:e.freq||'once',orderIds:(e.orderIds||[]).slice()};
-  const linkSection=scope==='biz'?buildOrderLinkSection():'';
-  let html='<h2>'+(existing?'Edit':scope==='home'?'Home / salary':'Business expense')+'</h2>';
-  html+='<label>Category</label><div class="cats">'+cats.map(c=>'<button data-cat="'+c[0]+'" class="'+(fs.cat===c[0]?'sel':'')+'"><span class="ce">'+c[1]+'</span>'+c[0]+'</button>').join('')+'</div>';
+  // scope is editable inside the form now (defaults to how it was opened / existing value)
+  let curScope=existing?(e.scope==='home'?'home':'biz'):(scope==='home'?'home':'biz');
+  const catsFor=s=>s==='home'?homeCats:bizCats;
+  fs={cat:e.cat||catsFor(curScope)[0][0],freq:e.freq||'once',orderIds:(e.orderIds||[]).slice()};
+  let html='<h2>'+(existing?'Edit expense':curScope==='home'?'Household expense':'Business expense')+'</h2>';
+  html+='<label>Type</label><div class="seg" id="e_scope"><button type="button" data-s="biz" class="'+(curScope==='biz'?'sel':'')+'">Business</button><button type="button" data-s="home" class="'+(curScope==='home'?'sel':'')+'">Household</button></div>';
+  html+='<div class="hint" style="margin:-2px 0 8px">Business expense reduces profit. Household expense reduces balance only, not profit.</div>';
+  html+='<label>Category</label><div class="cats" id="e_cats">'+catsFor(curScope).map(c=>'<button data-cat="'+c[0]+'" class="'+(fs.cat===c[0]?'sel':'')+'"><span class="ce">'+c[1]+'</span>'+c[0]+'</button>').join('')+'</div>';
   html+='<div id="e_empwrap" style="display:'+(fs.cat==='Salaries'?'block':'none')+'"><label>Employee / person name</label><input id="e_emp" value="'+esc(e.employee||'')+'" placeholder="e.g. Almaz"></div>';
   html+='<label>Amount ('+CUR()+')</label><input id="e_amt" type="number" inputmode="decimal" value="'+(e.amount||'')+'" placeholder="0">';
-  html+='<label>Date</label><input id="e_date" type="date" value="'+(e.date||today())+'">'+linkSection;
+  html+='<label>Date</label><input id="e_date" type="date" value="'+(e.date||today())+'">';
   html+='<label>Note (optional)</label><input id="e_note" value="'+esc(e.note||'')+'" placeholder="e.g. cotton from Merkato">';
   html+='<label>Repeats?</label><div class="seg" id="seg_freq">'+[['once','One-time'],['week','Weekly'],['month','Monthly'],['quarter','Every 3 months']].map(f=>'<button data-freq="'+f[0]+'" class="'+(fs.freq===f[0]?'sel':'')+'">'+f[1]+'</button>').join('')+'</div>';
   html+='<div class="hint">Recurring costs remind you 2 weeks before they are due.</div>';
   html+='<button class="save" id="e_save">'+(existing?'Save changes':'Add expense')+'</button>';
   if(existing)html+='<button class="ghost del" id="e_del">Delete</button>';
   openSheet(html);
-  document.querySelectorAll('.cats button').forEach(b=>b.onclick=()=>{fs.cat=b.dataset.cat;document.querySelectorAll('.cats button').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');$('e_empwrap').style.display=fs.cat==='Salaries'?'block':'none';});
+  const renderCats=()=>{const wrap=$('e_cats');wrap.innerHTML=catsFor(curScope).map(c=>'<button data-cat="'+c[0]+'" class="'+(fs.cat===c[0]?'sel':'')+'"><span class="ce">'+c[1]+'</span>'+c[0]+'</button>').join('');wireCats();};
+  const wireCats=()=>{document.querySelectorAll('#e_cats button').forEach(b=>b.onclick=()=>{fs.cat=b.dataset.cat;document.querySelectorAll('#e_cats button').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');$('e_empwrap').style.display=fs.cat==='Salaries'?'block':'none';});};
+  wireCats();
+  document.querySelectorAll('#e_scope button').forEach(b=>b.onclick=()=>{curScope=b.dataset.s;document.querySelectorAll('#e_scope button').forEach(x=>x.classList.toggle('sel',x===b));if(catsFor(curScope).map(c=>c[0]).indexOf(fs.cat)<0)fs.cat=catsFor(curScope)[0][0];renderCats();$('e_empwrap').style.display=fs.cat==='Salaries'?'block':'none';});
   document.querySelectorAll('#seg_freq button').forEach(b=>b.onclick=()=>{fs.freq=b.dataset.freq;document.querySelectorAll('#seg_freq button').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');});
-  if(scope==='biz')wireOrderLink();
-  $('e_save').onclick=async()=>{const amount=+$('e_amt').value||0;if(amount<=0){toast('Enter an amount');return;}const rec=fs.freq!=='once';const emp=fs.cat==='Salaries'?($('e_emp').value||''):'';const data={cat:fs.cat,amount:amount,date:$('e_date').value,note:$('e_note').value,employee:emp,scope:scope,recurring:rec,freq:fs.freq,orderIds:scope==='biz'?fs.orderIds.slice():[]};if(existing)Object.assign(existing,data);else mem.expenses.push(Object.assign({id:uid()},data));await save();closeSheet();savedTick(existing?'Expense updated':'Expense saved');render();};
+  $('e_save').onclick=async()=>{const amount=+$('e_amt').value||0;if(amount<=0){toast('Enter an amount');return;}const rec=fs.freq!=='once';const emp=fs.cat==='Salaries'?($('e_emp').value||''):'';const data={cat:fs.cat,amount:amount,date:$('e_date').value,note:$('e_note').value,employee:emp,scope:curScope,recurring:rec,freq:fs.freq,orderIds:[]};if(existing)Object.assign(existing,data);else mem.expenses.push(Object.assign({id:uid()},data));await save();closeSheet();savedTick(existing?'Expense updated':'Expense saved');render();};
   if(existing)$('e_del').onclick=async()=>{mem.expenses=mem.expenses.filter(x=>x.id!==existing.id);await save();closeSheet();toast('Deleted');render();};
 }
-function buildOrderLinkSection(){
-  const orders=[...mem.orders].sort((a,b)=>b.created.localeCompare(a.created)).slice(0,40);
-  if(!orders.length)return '<div class="hint" style="margin-top:14px">No orders yet to link this cost to.</div>';
-  const chips=orders.map(o=>'<button type="button" class="ochip" data-oid="'+o.id+'">'+esc(o.customer||'Order')+(o.clothType?' &middot; '+esc(o.clothType):'')+'</button>').join('');
-  return '<label>Link to order(s) <span style="text-transform:none;font-weight:400;color:var(--muted)">&mdash; optional</span></label><div class="ochips" id="e_ochips">'+chips+'</div><div class="hint" id="e_splithint">Tag this cost to an order to track true profit. Pick several to split evenly.</div>';
-}
-function wireOrderLink(){
-  const upd=()=>{document.querySelectorAll('.ochip').forEach(c=>c.classList.toggle('sel',fs.orderIds.indexOf(c.dataset.oid)>=0));const amt=+$('e_amt').value||0;const n=fs.orderIds.length;const h=$('e_splithint');if(n===0)h.innerHTML='Tag this cost to an order to track true profit. Pick several to split evenly.';else if(n===1)h.innerHTML='Whole cost assigned to 1 order.';else h.innerHTML='Split evenly: '+money(amt/n)+' to each of '+n+' orders.';};
-  document.querySelectorAll('.ochip').forEach(c=>c.onclick=()=>{const id=c.dataset.oid;const i=fs.orderIds.indexOf(id);if(i>=0)fs.orderIds.splice(i,1);else fs.orderIds.push(id);upd();});
-  const amtEl=$('e_amt');if(amtEl)amtEl.addEventListener('input',upd);upd();
-}
+
+
 
 function eventForm(existing){
   const ev=existing||{};
@@ -1104,7 +1100,7 @@ $('menuBtn').onclick=openSide;
 })();
 $('sideClose').onclick=closeSide;
 $('sideScrim').onclick=closeSide;
-document.querySelectorAll('.sideitem').forEach(b=>b.onclick=()=>{const go=b.dataset.go;closeSide();if(go==='settings'){settingsForm();}else{setTab(go);}});
+document.querySelectorAll('.sideitem').forEach(b=>b.onclick=()=>{const go=b.dataset.go;const act=b.dataset.act;closeSide();if(act==='backups'){backupsForm();}else if(go==='settings'){settingsForm();}else if(go){setTab(go);}});
 $('addBtn').onclick=()=>openSheet('<h2>Add</h2>'
   +'<div class="addsection">Income</div><div class="addgrid">'
   +'<button class="addopt" data-t="order"><span class="ce">&#10022;</span>Customer order</button>'
