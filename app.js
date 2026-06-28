@@ -223,7 +223,13 @@ function renderWhoOwes(){
   });
 }
 const orderStatus=o=>o.paid>=o.total?'paid':(o.paid>0?'partial':'unpaid');
-const loanRepaid=l=>Math.max(0,l.total-l.balance);
+// Repaid is DERIVED from the repayment expenses linked to this loan — never stored
+// separately — so the loan balance can never drift out of sync with the money.
+function loanRepaid(l){
+  const fromExp=mem.expenses.filter(e=>e.loanId===l.id).reduce((s,e)=>s+(+e.amount||0),0);
+  return Math.min(l.total, fromExp);
+}
+function loanBalance(l){return Math.max(0, l.total-loanRepaid(l));}
 const bagRate=()=>+mem.settings.bagRate||0;
 const MFIELDS=[['bust','Bust'],['waist','Waist'],['backShoulder','Back shoulder'],['halfShoulder','Half shoulder'],['shoulderToBust','Shoulder to bust'],['shoulderToWaist','Shoulder to waist'],['hip','Hip'],['sleeve','Sleeve'],['sleeveCup','Sleeve cup'],['skirtLength','Skirt length'],['coatLength','Coat length'],['height','Height']];
 function expenseShareForOrder(e,orderId){if(e.rollId)return 0;if(!e.orderIds||!e.orderIds.length)return 0;if(e.orderIds.indexOf(orderId)<0)return 0;return e.amount/e.orderIds.length;}
@@ -358,7 +364,7 @@ function renderHome(){
   // alerts
   let alerts='';
   if(t.owed>0)alerts+='<div class="alert due"><span class="dot"></span><span><b>'+money(t.owed)+'</b> still owed to you across orders</span></div>';
-  const loanBal=mem.loans.reduce((s,l)=>s+l.balance,0);
+  const loanBal=mem.loans.reduce((s,l)=>s+loanBalance(l),0);
   if(loanBal>0)alerts+='<div class="alert loan"><span class="dot"></span><span><b>'+money(loanBal)+'</b> in loans still to repay</span></div>';
   upcomingRecurring().forEach(u=>{const txt=u.days<0?'<b>'+u.label+'</b> overdue '+(-u.days)+'d &mdash; '+money(u.amount):u.days===0?'<b>'+u.label+'</b> due today &mdash; '+money(u.amount):'<b>'+u.label+'</b> due in '+u.days+'d &mdash; '+money(u.amount);alerts+='<div class="alert '+(u.days<=2?'due':'')+'"><span class="dot"></span><span>'+txt+'</span></div>';});
   upcomingDeliveries().forEach(u=>{const tag=u.adj?' (adjustment)':'';const txt=u.days<0?'<b>'+esc(u.name)+'</b>'+tag+' delivery overdue by '+(-u.days)+'d':u.days===0?'<b>'+esc(u.name)+'</b>'+tag+' delivery is today':'<b>'+esc(u.name)+'</b>'+tag+' delivery in '+u.days+'d';alerts+='<div class="alert '+(u.days<=1?'due':'')+'"><span class="dot" style="background:'+(u.days<=1?'var(--accent)':'var(--amber)')+'"></span><span>'+txt+(u.item?' &middot; '+esc(u.item):'')+'</span></div>';});
@@ -501,9 +507,9 @@ function renderExpenses(){
 }
 
 function renderLoans(){
-  const loans=[...mem.loans].sort((a,b)=>b.balance-a.balance);
-  const totalBal=loans.reduce((s,l)=>s+l.balance,0);const totalBorrowed=loans.reduce((s,l)=>s+l.total,0);
-  const list=loans.length?loans.map(l=>{const repaid=loanRepaid(l),pct=l.total>0?Math.round(repaid/l.total*100):0;const cleared=l.balance<=0;const pl=(l.purpose==='household')?'<span class="pill home" style="margin-left:4px">Household</span>':'<span class="pill" style="margin-left:4px;background:var(--card2);color:var(--muted)">Business</span>';return '<div class="item" data-loan="'+l.id+'"><div class="ic loan">&#9672;</div><div class="body"><div class="t1">'+esc(l.lender||'Loan')+'</div><div class="t2">'+money(repaid)+' repaid of '+money(l.total)+(l.note?' &middot; '+esc(l.note):'')+'</div><span class="pill '+(cleared?'paid':'partial')+'">'+(cleared?'Cleared &#10003;':money(l.balance)+' left')+'</span>'+pl+'<div class="prog"><i style="width:'+pct+'%;background:var(--purple)"></i></div></div><div class="amt">'+pct+'%</div></div>';}).join(''):'<div class="empty"><div class="e-ic">&#9672;</div>No loans tracked. Tap + &rarr; Add a loan.</div>';
+  const loans=[...mem.loans].sort((a,b)=>loanBalance(b)-loanBalance(a));
+  const totalBal=loans.reduce((s,l)=>s+loanBalance(l),0);const totalBorrowed=loans.reduce((s,l)=>s+l.total,0);
+  const list=loans.length?loans.map(l=>{const repaid=loanRepaid(l),pct=l.total>0?Math.round(repaid/l.total*100):0;const bal=loanBalance(l);const cleared=bal<=0;const pl=(l.purpose==='household')?'<span class="pill home" style="margin-left:4px">Household</span>':'<span class="pill" style="margin-left:4px;background:var(--card2);color:var(--muted)">Business</span>';return '<div class="item" data-loan="'+l.id+'"><div class="ic loan">&#9672;</div><div class="body"><div class="t1">'+esc(l.lender||'Loan')+'</div><div class="t2">'+money(repaid)+' repaid of '+money(l.total)+(l.note?' &middot; '+esc(l.note):'')+'</div><span class="pill '+(cleared?'paid':'partial')+'">'+(cleared?'Cleared &#10003;':money(bal)+' left')+'</span>'+pl+'<div class="prog"><i style="width:'+pct+'%;background:var(--purple)"></i></div></div><div class="amt">'+pct+'%</div></div>';}).join(''):'<div class="empty"><div class="e-ic">&#9672;</div>No loans tracked. Tap + &rarr; Add a loan.</div>';
   return '<div class="twostat"><div><div class="sl">Still to repay</div><div class="sv" style="color:var(--purple)">'+money(totalBal)+'</div></div><div><div class="sl">Total borrowed</div><div class="sv">'+money(totalBorrowed)+'</div></div></div><div class="card">'+list+'</div>'+(loans.length?'<div class="hint" style="text-align:center;margin-top:10px">Tap a loan to log a repayment. Business loans reduce profit; household loans reduce balance only.</div>':'');
 }
 
@@ -737,9 +743,9 @@ function renderReports(){
   html+='<div class="repcard"><h3>Business expenses &middot; detail</h3>'+bizBars+'</div>';
   html+='<div class="repcard"><h3>Household expenses &middot; detail</h3>'+homeBars+'</div>';
   // loans section (moved here from its own tab)
-  const loans=[...mem.loans].sort((a,b)=>b.balance-a.balance);
-  const totalBal=loans.reduce((s,l)=>s+l.balance,0);
-  const loanRows=loans.length?loans.map(l=>{const repaid=loanRepaid(l),pct=l.total>0?Math.round(repaid/l.total*100):0;const cleared=l.balance<=0;return '<div class="item" data-loan="'+l.id+'"><div class="ic loan">&#9672;</div><div class="body"><div class="t1">'+esc(l.lender||'Loan')+'</div><div class="t2">'+money(repaid)+' repaid of '+money(l.total)+(l.note?' &middot; '+esc(l.note):'')+'</div><span class="pill '+(cleared?'paid':'partial')+'">'+(cleared?'Cleared &#10003;':money(l.balance)+' left')+'</span><div class="prog"><i style="width:'+pct+'%;background:var(--purple)"></i></div></div><div class="amt">'+pct+'%</div></div>';}).join(''):'<div class="empty" style="padding:18px">No loans tracked. Tap + &rarr; Expense &rarr; Loan.</div>';
+  const loans=[...mem.loans].sort((a,b)=>loanBalance(b)-loanBalance(a));
+  const totalBal=loans.reduce((s,l)=>s+loanBalance(l),0);
+  const loanRows=loans.length?loans.map(l=>{const repaid=loanRepaid(l),pct=l.total>0?Math.round(repaid/l.total*100):0;const bal=loanBalance(l);const cleared=bal<=0;return '<div class="item" data-loan="'+l.id+'"><div class="ic loan">&#9672;</div><div class="body"><div class="t1">'+esc(l.lender||'Loan')+'</div><div class="t2">'+money(repaid)+' repaid of '+money(l.total)+(l.note?' &middot; '+esc(l.note):'')+'</div><span class="pill '+(cleared?'paid':'partial')+'">'+(cleared?'Cleared &#10003;':money(bal)+' left')+'</span><div class="prog"><i style="width:'+pct+'%;background:var(--purple)"></i></div></div><div class="amt">'+pct+'%</div></div>';}).join(''):'<div class="empty" style="padding:18px">No loans tracked. Tap + &rarr; Expense &rarr; Loan.</div>';
   html+='<div class="dash-section">Loans <span style="font-family:Archivo;font-style:normal;font-size:12px;color:var(--muted)">&mdash; '+money(totalBal)+' to repay &middot; tap to manage</span></div><div class="card">'+loanRows+'</div>';
   // Previous months — tappable list showing money at end of each month (running balance)
   const ser=monthlySeriesAsc(12).slice().reverse(); // newest first for display
@@ -969,22 +975,23 @@ function loanForm(existing){
   html+='<label>Total loan amount ('+CUR()+')</label><input id="l_total" type="number" inputmode="decimal" value="'+(l.total||'')+'" placeholder="0" '+(existing?'disabled style="opacity:.5"':'')+'>';
   html+='<label>What was this loan for?</label><div class="seg" id="l_purpose"><button type="button" data-p="business" class="'+(purpose==='business'?'sel':'')+'">Business</button><button type="button" data-p="household" class="'+(purpose==='household'?'sel':'')+'">Household</button></div>';
   html+='<div class="hint" style="margin:-4px 0 8px">Business = bought stock/materials the business runs on (repayments reduce profit). Household = personal use (repayments reduce balance only, never profit).</div>';
-  if(existing)html+='<label>Current balance ('+CUR()+')</label><input id="l_bal" type="number" inputmode="decimal" value="'+l.balance+'">';
+  if(existing){const bal=loanBalance(l);html+='<div class="balbox"><span class="bl">Remaining to repay</span><span class="bv">'+money(bal)+'</span></div>';}
   html+='<label>Note (optional)</label><input id="l_note" value="'+esc(l.note||'')+'" placeholder="e.g. monthly due 5th">';
-  if(existing)html+='<div class="balbox"><span class="bl">Repaid</span><span class="bv">'+money(loanRepaid(l))+' of '+money(l.total)+'</span></div>';
+  if(existing)html+='<div class="balbox"><span class="bl">Repaid so far</span><span class="bv">'+money(loanRepaid(l))+' of '+money(l.total)+'</span></div>';
   html+='<button class="save" id="l_save">'+(existing?'Save':'Add loan')+'</button>';
   if(existing)html+='<button class="ghost" id="l_repay" style="color:var(--purple);font-weight:600">&#65291; Log a repayment</button><button class="ghost del" id="l_del">Delete loan</button>';
   openSheet(html);
   let curPurpose=purpose;
   document.querySelectorAll('#l_purpose button').forEach(b=>b.onclick=()=>{curPurpose=b.dataset.p;document.querySelectorAll('#l_purpose button').forEach(x=>x.classList.toggle('sel',x===b));});
-  $('l_save').onclick=async()=>{if(existing){existing.lender=$('l_lender').value;existing.note=$('l_note').value;existing.purpose=curPurpose;const b=+$('l_bal').value;if(!isNaN(b))existing.balance=Math.max(0,Math.min(existing.total,b));}else{const total=+$('l_total').value||0;if(total<=0){toast('Enter loan amount');return;}mem.loans.push({id:uid(),lender:$('l_lender').value,total:total,balance:total,note:$('l_note').value,purpose:curPurpose,created:today()});}await save();closeSheet();toast(existing?'Saved':'Loan added');render();};
+  $('l_save').onclick=async()=>{if(existing){existing.lender=$('l_lender').value;existing.note=$('l_note').value;existing.purpose=curPurpose;}else{const total=+$('l_total').value||0;if(total<=0){toast('Enter loan amount');return;}mem.loans.push({id:uid(),lender:$('l_lender').value,total:total,note:$('l_note').value,purpose:curPurpose,created:today()});}await save();closeSheet();toast(existing?'Saved':'Loan added');render();};
   if(existing){$('l_repay').onclick=()=>repayForm(existing);$('l_del').onclick=async()=>{mem.loans=mem.loans.filter(x=>x.id!==existing.id);mem.expenses=mem.expenses.filter(x=>x.loanId!==existing.id);await save();closeSheet();toast('Loan deleted');render();};}
 }
 function repayForm(loan){
   const isHome=loan.purpose==='household';
   const bucketLabel=isHome?'household expense':'business expense';
-  openSheet('<h2>Repay: '+esc(loan.lender||'loan')+'</h2><div class="hint" style="margin-bottom:6px">'+money(loan.balance)+' remaining &middot; recorded as a '+bucketLabel+'</div><label>Repayment amount ('+CUR()+')</label><input id="r_amt" type="number" inputmode="decimal" placeholder="0"><label>Date</label><input id="r_date" type="date" value="'+today()+'"><button class="save" id="r_save">Log repayment</button>');
-  $('r_save').onclick=async()=>{const amt=+$('r_amt').value||0;if(amt<=0){toast('Enter an amount');return;}const pay=Math.min(loan.balance,amt);loan.balance=Math.max(0,loan.balance-pay);mem.expenses.push({id:uid(),cat:'Loan repayment',amount:pay,date:$('r_date').value,note:loan.lender,scope:isHome?'home':'biz',loanId:loan.id,recurring:false,freq:'once'});await save();closeSheet();toast(loan.balance===0?'Loan cleared! &#10003;':'Repayment logged');render();};
+  const bal=loanBalance(loan);
+  openSheet('<h2>Repay: '+esc(loan.lender||'loan')+'</h2><div class="hint" style="margin-bottom:6px">'+money(bal)+' remaining &middot; recorded as a '+bucketLabel+'</div><label>Repayment amount ('+CUR()+')</label><input id="r_amt" type="number" inputmode="decimal" placeholder="0"><label>Date</label><input id="r_date" type="date" value="'+today()+'"><button class="save" id="r_save">Log repayment</button>');
+  $('r_save').onclick=async()=>{const amt=+$('r_amt').value||0;if(amt<=0){toast('Enter an amount');return;}const remaining=loanBalance(loan);const pay=Math.min(remaining,amt);mem.expenses.push({id:uid(),cat:'Loan repayment',amount:pay,date:$('r_date').value,note:loan.lender,scope:isHome?'home':'biz',loanId:loan.id,recurring:false,freq:'once'});await save();closeSheet();toast(loanBalance(loan)===0?'Loan cleared! &#10003;':'Repayment logged');render();};
 }
 function bagRateForm(){
   openSheet('<h2>Packaging bag cost</h2><label>Cost per bag ('+CUR()+')</label><input id="bg_rate" type="number" inputmode="decimal" value="'+(bagRate()||'')+'" placeholder="0"><div class="hint">Added automatically to every <b>new</b> order. Include bag fabric + logo print + making cost per bag. Past orders keep their original rate.</div><button class="save" id="bg_save">Save bag rate</button>');
