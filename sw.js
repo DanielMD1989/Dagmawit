@@ -2,7 +2,7 @@
 // Network first: when online, always fetch the newest files and keep a copy;
 // when offline, serve the last copy. Built code files have new names on every
 // build, so they are cached the first time they load rather than listed here.
-const VERSION = 'dagmawit-v11';
+const VERSION = 'dagmawit-v13';
 const CORE = ['./', './index.html', './config.js', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './logo-white.png'];
 
 self.addEventListener('install', e => {
