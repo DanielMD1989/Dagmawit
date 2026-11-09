@@ -21,7 +21,7 @@ Take it one numbered step at a time. If a step's screen looks a little different
 - Pick the region closest to you (e.g. an EU or Middle East region for Ethiopia).
 - Click **Create new project**. Wait ~2 minutes while it sets up.
 
-**3.** Create the data table. In the left sidebar click **SQL Editor** → **New query**. Open the file **`database-setup.sql`** (included in this folder) in any text editor, copy ALL of it, paste it into the box, and click **Run**. You should see "Success". This builds your shared table and security rules.
+**3.** Create the data table. In the left sidebar click **SQL Editor** → **New query**. Open the file **`sql/database-setup.sql`** in any text editor, copy ALL of it, paste it into the box, and click **Run**. You should see "Success". This builds your shared table and security rules.
 
 **4.** Get your two connection values. In the left sidebar click **Project Settings** (gear icon) → **API**. You'll see:
 - **Project URL** — something like `https://abcdxyz.supabase.co`
@@ -37,7 +37,7 @@ Keep this tab open; you'll copy these in Part 2.
 
 ## PART 2 — Put your keys into the app  ~5 min
 
-**6.** In this app folder, open the file **`config.js`** in any text editor (Notepad, TextEdit, VS Code — anything).
+**6.** Open **`dist/config.js`** in any text editor (Notepad, TextEdit, VS Code — anything). If you will rebuild the app later, put the same values in **`public/config.js`** too.
 
 **7.** Replace the two placeholder values with the ones from Supabase step 4:
 
@@ -58,7 +58,7 @@ Keep the quotes. Save the file. (It's safe to put the `anon` key here — it's d
 
 **9.** The easiest path: on the Netlify home page, find **"Deploy manually"** / **"Drag and drop your site folder here"** (sometimes under **Sites → Add new site → Deploy manually**).
 
-**10.** Drag this **entire app folder** (the one containing `index.html`, `app.js`, `config.js`, etc.) onto that drop area. Netlify uploads it and gives you a live web address like `https://your-name-123.netlify.app`.
+**10.** Drag the **`dist` folder** (the one containing `index.html`, `config.js` and an `assets` folder) onto that drop area. Netlify uploads it and gives you a live web address like `https://your-name-123.netlify.app`.
 
 **11.** Open that address. You should see the Atelier **sign-in screen**. 🎉
 
@@ -70,7 +70,7 @@ Keep the quotes. Save the file. (It's safe to put the `anon` key here — it's d
 
 **12.** The app has no "create account" button (so strangers can't make one). Create the two accounts in Supabase instead: **Authentication → Users → Add user → Create new user**. Enter the email and a password, and tick **Auto confirm user**. Do this once for **you** and once for **your partner**. Both accounts share the same business data.
 
-**12b. Lock the data to those two accounts.** Open **`restrict-access.sql`**, put your two emails in it, and run it in **SQL Editor** (instructions are at the top of the file). Then go to **Authentication → Sign In / Providers** and turn **off** "Allow new users to sign up".
+**12b. Lock the data to those two accounts.** Open **`sql/restrict-access.sql`**, put your two emails in it, and run it in **SQL Editor** (instructions are at the top of the file). Then go to **Authentication → Sign In / Providers** and turn **off** "Allow new users to sign up".
 
 **13.** Sign in. Record a test payment to confirm it saves. Then sign in on the other phone: you should see the same data. That's sync working.
 
@@ -83,7 +83,7 @@ Keep the quotes. Save the file. (It's safe to put the `anon` key here — it's d
 
 ## Updating the app later
 
-If I give you improved files, just drag the updated folder onto your Netlify site again (Netlify → your site → **Deploys** → drag the folder). It replaces the old version. Your data is safe in Supabase and is untouched by redeploys.
+If you get improved files, drag the new **`dist`** folder onto your site again (Netlify → your site → **Deploys** → drag the folder). If the site is connected to GitHub, pushing the code is enough: it builds and publishes itself. It replaces the old version. Your data is safe in Supabase and is untouched by redeploys.
 
 ---
 

@@ -1,0 +1,22 @@
+{
+  "name": "dagmawit-money",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DAGMAWIT money app: income, expenses, loans and reports for a fashion atelier.",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
+  }
+}

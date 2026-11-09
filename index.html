@@ -8,19 +8,18 @@
 <meta name="theme-color" content="#EEF2EA">
 <meta name="apple-mobile-web-app-title" content="DAGMAWIT">
 <title>DAGMAWIT — Money</title>
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="loadingView" class="loading"><img src="logo-white.png" alt="DAGMAWIT"><div class="spin"></div></div>
+<div id="loadingView" class="loading"><img src="./logo-white.png" alt="DAGMAWIT"><div class="spin"></div></div>
 
 <div id="authView" class="auth" style="display:none">
   <form class="card" id="au_form">
-    <div class="logo"><img src="logo-white.png" alt="DAGMAWIT"></div>
+    <div class="logo"><img src="./logo-white.png" alt="DAGMAWIT"></div>
     <h1>Welcome back</h1>
     <p>Sign in to your money book.</p>
     <div class="field"><label for="au_email">Email</label><input class="input" id="au_email" type="email" autocomplete="email" placeholder="name@example.com"></div>
@@ -59,16 +58,8 @@
 <div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="sheet-in" id="sheetIn"></div></div>
 <div class="toast" id="toast" role="status"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="config.js"></script>
-<script src="js/icons.js"></script>
-<script src="js/util.js"></script>
-<script src="js/model.js"></script>
-<script src="js/sync.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/screens.js"></script>
-<script src="js/forms.js"></script>
-<script src="js/app.js"></script>
+<script src="./config.js"></script>
+<script type="module" src="/src/main.ts"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
