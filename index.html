@@ -10,14 +10,37 @@
 <title>DAGMAWIT — Money</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<script>
+/* Start-up watchdog. Plain script, independent of the app code, so it still
+   works if that code cannot load or run on this phone. If the app has not
+   started after 12 seconds, it says so and shows any error it caught. */
+(function () {
+  var errs = [];
+  // capture = true also catches files that fail to download (a missing upload)
+  window.addEventListener('error', function (e) {
+    var t = e.target;
+    if (t && t !== window && (t.src || t.href)) { errs.push('Could not load ' + String(t.src || t.href).split('/').pop()); return; }
+    errs.push((e.message || 'Script error') + (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : ''));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) { var r = e.reason; errs.push(String(r && r.message ? r.message : r)); });
+  setTimeout(function () {
+    if (window.__appStarted) return;
+    var v = document.getElementById('loadingView');
+    if (!v || v.style.display === 'none') return;
+    var s = document.getElementById('loadSpin'), m = document.getElementById('loadMsg');
+    if (s) s.style.display = 'none';
+    if (m) m.innerHTML = 'The app is taking too long to start.<small>' + (errs.length ? errs.join(' · ').replace(/[<>&]/g, '') : 'No error was reported. Check the internet connection.') + '</small><button type="button" onclick="location.reload()">Try again</button>';
+  }, 12000);
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script type="module" crossorigin src="./index-DWw2bdQ6.js"></script>
-  <link rel="stylesheet" crossorigin href="./index-_rCTyy5_.css">
+  <script type="module" crossorigin src="./index-Cwt58ADI.js"></script>
+  <link rel="stylesheet" crossorigin href="./index-BXYr8Gtc.css">
 </head>
 <body>
-<div id="loadingView" class="loading"><img src="./logo-white.png" alt="DAGMAWIT"><div class="spin"></div></div>
+<div id="loadingView" class="loading"><img src="./logo-white.png" alt="DAGMAWIT"><div class="spin" id="loadSpin"></div><div class="loadmsg" id="loadMsg"></div></div>
 
 <div id="authView" class="auth" style="display:none">
   <form class="card" id="au_form">
@@ -42,7 +65,7 @@
   <nav class="tabs" aria-label="Main">
     <div class="nav-in">
       <button class="tab on" data-act="tab" data-tab="home"></button>
-      <button class="tab" data-act="tab" data-tab="orders"></button>
+      <button class="tab" data-act="tab" data-tab="income"></button>
       <button class="add" id="addBtn" data-act="openAdd" aria-label="Add"></button>
       <button class="tab" data-act="tab" data-tab="expenses"></button>
       <button class="tab" data-act="tab" data-tab="reports"></button>
