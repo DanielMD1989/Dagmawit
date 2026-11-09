@@ -68,9 +68,11 @@ Keep the quotes. Save the file. (It's safe to put the `anon` key here — it's d
 
 ## PART 4 — Create your two accounts & install on phones  ~10 min
 
-**12.** On the live site, click **Create a new account**. Enter your email and a password (6+ characters). Do this once for **you** and once for **your partner** (each with your own email). Both accounts automatically share the same business data.
+**12.** The app has no "create account" button (so strangers can't make one). Create the two accounts in Supabase instead: **Authentication → Users → Add user → Create new user**. Enter the email and a password, and tick **Auto confirm user**. Do this once for **you** and once for **your partner**. Both accounts share the same business data.
 
-**13.** Sign in. Add a test order to confirm it saves. Then sign in on the other device/account — you should see the same data. That's live sync working.
+**12b. Lock the data to those two accounts.** Open **`restrict-access.sql`**, put your two emails in it, and run it in **SQL Editor** (instructions are at the top of the file). Then go to **Authentication → Sign In / Providers** and turn **off** "Allow new users to sign up".
+
+**13.** Sign in. Record a test payment to confirm it saves. Then sign in on the other phone: you should see the same data. That's sync working.
 
 **14.** Install it like an app:
 - **iPhone (Safari):** open the site → tap the **Share** button → **Add to Home Screen**. An Atelier icon appears like a real app.

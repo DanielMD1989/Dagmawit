@@ -1,10 +1,11 @@
 // DAGMAWIT service worker — auto-updating
 // Strategy: network-first for app files (always get latest when online),
 // fall back to cache only when offline. Bump VERSION to force refresh.
-const VERSION = 'dagmawit-v4';
+const VERSION = 'dagmawit-v6';
 const ASSETS = [
-  './','./index.html','./styles.css','./app.js','./config.js',
-  './manifest.json','./icon-192.png','./icon-512.png','./apple-touch-icon.png','./logo-white.png'
+  './','./index.html','./styles.css','./config.js','./manifest.json',
+  './js/icons.js','./js/util.js','./js/model.js','./js/sync.js','./js/ui.js','./js/screens.js','./js/forms.js','./js/app.js',
+  './icon-192.png','./icon-512.png','./apple-touch-icon.png','./logo-white.png'
 ];
 
 self.addEventListener('install', e => {

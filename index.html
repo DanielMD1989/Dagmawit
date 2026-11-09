@@ -5,90 +5,76 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#424530">
+<meta name="theme-color" content="#EEF2EA">
 <meta name="apple-mobile-web-app-title" content="DAGMAWIT">
-<title>DAGMAWIT — Business &amp; Home Tracker</title>
+<title>DAGMAWIT — Money</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,900&family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<div id="authView" class="auth-wrap" style="display:none">
-  <div class="auth-card">
-    <div class="brandlogo"><img src="logo-white.png" alt="DAGMAWIT" /></div>
+<div id="loadingView" class="loading"><img src="logo-white.png" alt="DAGMAWIT"><div class="spin"></div></div>
+
+<div id="authView" class="auth" style="display:none">
+  <form class="card" id="au_form">
+    <div class="logo"><img src="logo-white.png" alt="DAGMAWIT"></div>
     <h1>Welcome back</h1>
-    <p class="auth-sub">Sign in to your shared business tracker.</p>
-    <label>Email</label>
-    <input id="au_email" type="email" autocomplete="email" placeholder="you@example.com">
-    <label>Password</label>
-    <input id="au_pass" type="password" autocomplete="current-password" placeholder="Your password">
-    <button class="save" id="au_signin">Sign in</button>
-    <button class="ghost" id="au_signup">Create a new account</button>
-    <div class="auth-msg" id="au_msg"></div>
-  </div>
+    <p>Sign in to your money book.</p>
+    <div class="field"><label for="au_email">Email</label><input class="input" id="au_email" type="email" autocomplete="email" placeholder="name@example.com"></div>
+    <div class="field"><label for="au_pass">Password</label><input class="input" id="au_pass" type="password" autocomplete="current-password"></div>
+    <button class="btn" id="au_btn" type="submit">Sign in</button>
+    <div id="au_msg" class="err" style="text-align:center;margin-top:12px"></div>
+  </form>
 </div>
 
 <div id="appView" style="display:none">
-  <header>
-    <button id="menuBtn" class="menubtn" aria-label="Menu">&#9776;</button>
-    <div class="mark">DAGMAWIT</div>
-    <h1 id="hdrTitle">Overview</h1>
-    <div class="sub" id="hdrSub">Your business &amp; home, one ledger</div>
-    <button id="eyeBtn" class="eyebtn" aria-label="Hide or show money">&#128065;</button>
-    <div class="syncpill" id="syncPill">Synced</div>
+  <header class="topbar">
+    <button class="iconbtn" id="menuBtn" data-act="openSide" aria-label="Menu"></button>
+    <div class="brand">DAGMAWIT</div>
+    <div class="syncdot" id="sync"><i></i></div>
+    <button class="iconbtn" id="eyeBtn" data-act="toggleMoney" aria-label="Hide amounts"></button>
   </header>
-  <div class="wrap"><div id="view"></div></div>
-  <nav>
-    <div class="navinner">
-      <button data-tab="home" class="on"><span class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l-2 0l9 -9l9 9l-2 0"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7"/><path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6"/></svg></span>Home</button>
-      <button data-tab="orders"><span class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2"/><path d="M9 3m0 2a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v0a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2z"/><path d="M9 12l2 2l4 -4"/></svg></span>Orders</button>
-      <button class="add" id="addBtn"><span class="plus">+</span></button>
-      <button data-tab="expenses"><span class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8v-3a1 1 0 0 0 -1 -1h-10a2 2 0 0 0 0 4h12a1 1 0 0 1 1 1v3m0 4v3a1 1 0 0 1 -1 1h-12a2 2 0 0 1 -2 -2v-12"/><path d="M20 12v4h-4a2 2 0 0 1 0 -4h4"/></svg></span>Expenses</button>
-      <button data-tab="reports"><span class="ni"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M9 17v-5"/><path d="M13 17v-3"/><path d="M17 17v-7"/></svg></span>Reports</button>
+  <main class="wrap" id="view"></main>
+  <nav class="tabs" aria-label="Main">
+    <div class="nav-in">
+      <button class="tab on" data-act="tab" data-tab="home"></button>
+      <button class="tab" data-act="tab" data-tab="orders"></button>
+      <button class="add" id="addBtn" data-act="openAdd" aria-label="Add"></button>
+      <button class="tab" data-act="tab" data-tab="expenses"></button>
+      <button class="tab" data-act="tab" data-tab="reports"></button>
     </div>
   </nav>
-
-  <div class="sidescrim" id="sideScrim"></div>
-  <div class="sidemenu" id="sideMenu">
-    <div class="sidehead"><div class="mark">DAGMAWIT</div><button id="sideClose" class="sheetclose" style="position:static">&times;</button></div>
-    <button class="sideitem" data-go="measurements"><span class="si-ic">&#128100;</span>Customers</button>
-    <button class="sideitem" data-go="loans"><span class="si-ic">&#9672;</span>Loans</button>
-    <button class="sideitem" data-go="assets"><span class="si-ic">&#127981;</span>Assets</button>
-    <button class="sideitem" data-act="backups"><span class="si-ic">&#128190;</span>Backups &amp; restore</button>
-    <button class="sideitem" data-go="audit"><span class="si-ic">&#129518;</span>Check the numbers</button>
-    <button class="sideitem" data-go="settings"><span class="si-ic">&#9881;</span>Settings &amp; account</button>
-  </div>
+  <div class="sidescrim" id="sideScrim" data-act="closeSide"></div>
+  <aside class="side" id="side">
+    <div class="brand">DAGMAWIT</div>
+    <div id="sideItems"></div>
+    <div class="foot">Money app · data shared by both phones</div>
+  </aside>
 </div>
 
-<div class="scrim" id="scrim"></div>
-<div class="sheet" id="sheet"><div class="inner" id="sheetInner"></div></div>
-<div class="toast" id="toast"></div>
-<div id="loadingView" class="loading"><div class="brandlogo loadlogo"><img src="logo-white.png" alt="DAGMAWIT" /></div><div class="spinner"></div></div>
+<div class="scrim" id="scrim" data-act="closeSheets"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true"><div class="sheet-in" id="sheetIn"></div></div>
+<div class="toast" id="toast" role="status"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="config.js"></script>
-<script src="app.js"></script>
+<script src="js/icons.js"></script>
+<script src="js/util.js"></script>
+<script src="js/model.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/screens.js"></script>
+<script src="js/forms.js"></script>
+<script src="js/app.js"></script>
 <script>
-if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('./sw.js').then(reg=>{
-      reg.addEventListener('updatefound',()=>{
-        const nw=reg.installing;
-        if(nw){nw.addEventListener('statechange',()=>{
-          if(nw.state==='installed' && navigator.serviceWorker.controller){
-            nw.postMessage&&nw.postMessage('skipWaiting');
-          }
-        });}
-      });
-      reg.update();
-    }).catch(e=>console.log('SW reg failed',e));
-    let reloaded=false;
-    navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(reloaded)return;reloaded=true;window.location.reload();
-    });
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => reg.update()).catch(() => {});
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded) { reloaded = true; location.reload(); } });
   });
 }
 </script>
