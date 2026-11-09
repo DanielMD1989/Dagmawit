@@ -1,17 +1,13 @@
-// DAGMAWIT service worker — auto-updating
-// Strategy: network-first for app files (always get latest when online),
-// fall back to cache only when offline. Bump VERSION to force refresh.
-const VERSION = 'dagmawit-v6';
-const ASSETS = [
-  './','./index.html','./styles.css','./config.js','./manifest.json',
-  './js/icons.js','./js/util.js','./js/model.js','./js/sync.js','./js/ui.js','./js/screens.js','./js/forms.js','./js/app.js',
-  './icon-192.png','./icon-512.png','./apple-touch-icon.png','./logo-white.png'
-];
+// DAGMAWIT service worker.
+// Network first: when online, always fetch the newest files and keep a copy;
+// when offline, serve the last copy. Built code files have new names on every
+// build, so they are cached the first time they load rather than listed here.
+const VERSION = 'dagmawit-v7';
+const CORE = ['./', './index.html', './config.js', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './logo-white.png'];
 
 self.addEventListener('install', e => {
-  // activate the new worker immediately, don't wait
   self.skipWaiting();
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(ASSETS)).catch(()=>{}));
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(CORE)).catch(() => {}));
 });
 
 self.addEventListener('activate', e => {
@@ -24,23 +20,14 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // never touch Supabase API — always live network
-  if (url.hostname.includes('supabase')) return;
   if (e.request.method !== 'GET') return;
-
-  // NETWORK-FIRST: try to fetch the freshest file; update cache; fall back to cache offline
+  if (url.hostname.endsWith('supabase.co') || url.protocol === 'ws:' || url.protocol === 'wss:') return;   // live data: never cached
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        if (res && res.status === 200) {
-          const copy = res.clone();
-          caches.open(VERSION).then(c => c.put(e.request, copy));
-        }
+        if (res && res.status === 200) { const copy = res.clone(); caches.open(VERSION).then(c => c.put(e.request, copy)); }
         return res;
       })
-      .catch(() => caches.match(e.request).then(c => c || caches.match('./index.html')))
+      .catch(() => caches.match(e.request).then(c => c || (e.request.mode === 'navigate' ? caches.match('./index.html') : undefined)))
   );
 });
-
-// allow the page to tell a waiting worker to take over
-self.addEventListener('message', e => { if (e.data === 'skipWaiting') self.skipWaiting(); });
